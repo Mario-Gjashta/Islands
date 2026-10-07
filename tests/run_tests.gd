@@ -52,9 +52,9 @@ func _test_grid_bounds_and_count() -> void:
 func _test_grid_set_height_clamps() -> void:
 	var grid := HexGrid.new(3)
 	var cell := Vector2i(1, 1)
-	_check(grid.set_height(cell, 9), "set changes height")
-	_check(grid.get_height(cell) == HexGrid.MAX_HEIGHT, "clamped to peak")
-	_check(not grid.set_height(cell, 7), "no change when already at max")
+	_check(grid.set_height(cell, HexGrid.MAX_HEIGHT + 4), "set changes height")
+	_check(grid.get_height(cell) == HexGrid.MAX_HEIGHT, "clamped to summit")
+	_check(not grid.set_height(cell, HexGrid.MAX_HEIGHT + 1), "no change when already at max")
 	grid.set_height(cell, -3)
 	_check(grid.get_height(cell) == HexGrid.Layer.SEABED, "clamped to seabed")
 	_check(not grid.set_height(Vector2i(10, 0), 2), "outside cells cannot be set")

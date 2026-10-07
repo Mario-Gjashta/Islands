@@ -9,7 +9,7 @@ See [`docs/concept.md`](docs/concept.md) for the full concept.
 
 From the concept doc, the first prototype covers:
 
-1. Tap a hex to raise or lower its height, from seabed to peak.
+1. Tap a hex to raise or lower its height, from seabed to summit.
 2. Heights blend into one smooth island, painted by a single water and land shader.
 3. Foam along the coast, plus a ghost hex under the pointer.
 
@@ -46,17 +46,27 @@ godot --path .
 
 - **Logic on hexes** (`scripts/hex.gd`, `scripts/hex_grid.gd`): pointy-top axial
   coordinates and a hex-shaped map that stores one integer layer per cell
-  (0 seabed, 1 reef, 2 shallows, 3 beach, 4 land, 5 peak).
-- **Rendering without hexes** (`scripts/sea_renderer.gd`, `shaders/sea.gdshader`):
-  a 3D scene seen from an angled camera (`scripts/camera_rig.gd`, about 50°).
-  Displayed heights live in a tiny float texture, one texel per hex. The shader
-  blends the two rings of hexes around each point with gaussian weights and a
-  noise warp, so hexes melt into soft contours, then lifts the land out of a flat
-  sea on a finely subdivided plane (a second flat plane carries the sea out to
-  the horizon). The sun casts real light and shadow. Per pixel it paints by height: water
-  colour by depth, caustics, coastal foam and swells, glints, sand, meadow with
-  flowers and stone, plus wet edges and paper grain. Sea level sits
-  at 2.5, so beach (3) is the first layer above water.
+  (0 seabed, 1 reef, 2 shallows, 3 beach, 4 meadow, 5 hills, 6 highland,
+  7 mountain, 8 summit).
+- **Rendering without hexes** (`scripts/sea_renderer.gd`, `shaders/`): a 3D
+  scene seen from an angled camera (`scripts/camera_rig.gd`, about 50°).
+  Displayed heights live in a tiny float texture, one texel per hex.
+  `terrain.gdshaderinc` turns it into one height field: a gaussian blend of
+  the nearby hexes with a noise warp (soft coastlines), pointed peaks that
+  grow sharper on higher hexes, and ridged crags on mountain ground. Higher
+  layers also rise more steeply, so mountains tower over the lowlands.
+  That field is baked into a height map whenever the land changes
+  (`height_bake.gdshader`), and the terrain mesh and trees read it.
+- **Painting** (`sea.gdshader`): per pixel, by height and slope. Water by depth
+  with caustics, coastal foam, swells and glints; then sand, flowered meadow,
+  mossy forest floor, scree, banded rock strata, and snow caps that slide off
+  steep faces. Steep slopes break out into bare cliffs. Wet edges and paper
+  grain over everything; a side-on sun with shadows and fog to the horizon.
+- **Trees** (`trees.gdshader`): candidates are scattered over every hex, and
+  each one reads the ground under it to decide whether it grows. You get a few
+  broad trees on meadows (layer 4), forest on the hills (5), and slim conifers
+  thinning out on the highlands (6). Above that is the tree line. Trees grow
+  and recede on their own as the land rises and sinks.
 - **Feel** (`scripts/ghost_hex.gd`, `scripts/splash.gd`): the ghost hex drops out
   when a tile lands and drifts back in; tiles rise with an overshoot tween and a
   foam ripple.

@@ -6,10 +6,12 @@ extends RefCounted
 ## (2R+1)^2 array indexed by axial coords offset by the radius, which is also
 ## the layout of the texture the sea shader samples.
 
-enum Layer { SEABED, REEF, SHALLOWS, BEACH, LAND, PEAK }
+enum Layer { SEABED, REEF, SHALLOWS, BEACH, MEADOW, HILLS, HIGHLAND, MOUNTAIN, SUMMIT }
 
-const MAX_HEIGHT := Layer.PEAK
-const LAYER_NAMES := ["Seabed", "Reef", "Shallows", "Beach", "Land", "Peak"]
+const MAX_HEIGHT := Layer.SUMMIT
+const LAYER_NAMES := [
+	"Seabed", "Reef", "Shallows", "Beach", "Meadow", "Hills", "Highland", "Mountain", "Summit",
+]
 
 var radius: int
 ## Side length of the backing square array (and the shader's cell texture).
