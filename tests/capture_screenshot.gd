@@ -11,8 +11,13 @@ func _initialize() -> void:
 	await process_frame
 	main.new_sea(42)
 	main.build_sample_island()
-	main.camera.position = Vector3(3.0, 0.0, -1.0)
-	main.camera.distance = 24.0
+	var args_view: String = args[1] if args.size() > 1 else "near"
+	if args_view == "near":
+		main.camera.position = Vector3(-1.0, 0.0, -3.0)
+		main.camera.distance = 14.0
+	else:
+		main.camera.position = Vector3(2.0, 0.0, 0.0)
+		main.camera.distance = 30.0
 	main.camera.zoom_at(1.0, Vector2.ZERO)
 	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw

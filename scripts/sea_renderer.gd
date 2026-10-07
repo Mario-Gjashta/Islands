@@ -10,19 +10,19 @@ extends Node3D
 const SEA_SHADER := preload("res://shaders/sea.gdshader")
 const TREE_SHADER := preload("res://shaders/trees.gdshader")
 const BAKE_SHADER := preload("res://shaders/height_bake.gdshader")
-## Height map texels per side; about seven per hex across the map.
-const BAKE_SIZE := 512
+## Height map texels per side; about nine per hex across the map.
+const BAKE_SIZE := 640
 const RISE_DURATION := 0.7
 ## Passed to the shaders, which use them for sea_level and layer_height.
 const SEA_LEVEL := 2.5
 const LAYER_HEIGHT := 0.42
-const MOUNTAIN_RISE := 0.11
+const MOUNTAIN_RISE := 0.08
 ## Terrain mesh vertices per hex width; more = sharper peaks, more cost.
-const VERTS_PER_HEX := 7.0
+const VERTS_PER_HEX := 9.0
 ## Tree candidates scattered per hex; the shader decides which ones grow.
-const TREES_PER_HEX := 8
+const TREES_PER_HEX := 18
 ## Headroom for GPU displacement, so culling never clips peaks or trees.
-const MAX_RISE := 6.0
+const MAX_RISE := 9.0
 
 var hex_size := 1.0
 var grid: HexGrid
@@ -81,6 +81,25 @@ func get_display_height(cell: Vector2i) -> float:
 func surface_y(cell: Vector2i) -> float:
 	var lift := maxf(get_display_height(cell) - SEA_LEVEL, 0.0)
 	return lift * LAYER_HEIGHT + pow(maxf(lift - 1.5, 0.0), 1.7) * MOUNTAIN_RISE
+
+
+## Rough height of the tallest ground within `radius` of a world point,
+## including rock towers, for keeping the camera out of the terrain.
+## Mirrors the tower and rise maths in terrain.gdshaderinc, approximately.
+func max_ground_y(world: Vector3, radius: float) -> float:
+	var centre := Hex.from_pixel(Vector2(world.x, world.z), hex_size)
+	var reach := int(ceil(radius / (hex_size * Hex.SQRT3))) + 1
+	var highest := 0.0
+	for dq in range(-reach, reach + 1):
+		for dr in range(-reach, reach + 1):
+			var cell := centre + Vector2i(dq, dr)
+			if not grid.contains(cell):
+				continue
+			var h := get_display_height(cell)
+			h += pow(maxf(h - HexGrid.Layer.MEADOW, 0.0), 1.3) * 0.65
+			var lift := maxf(h - SEA_LEVEL, 0.0)
+			highest = maxf(highest, lift * LAYER_HEIGHT + pow(maxf(lift - 1.5, 0.0), 1.7) * MOUNTAIN_RISE)
+	return highest
 
 
 ## Argument order matches Tween.tween_method, which passes the value first.
@@ -204,28 +223,27 @@ func _could_grow_trees(cell: Vector2i) -> bool:
 	return false
 
 
-## A small low-poly tree: a trunk and two stacked cones of foliage.
-## Vertex colour red marks foliage (1) versus trunk (0) for the shader.
+## A tree canopy: a low-poly squashed sphere, lumpy so neighbours overlap
+## into a jungle rather than a field of balls.
 func _tree_mesh() -> ArrayMesh:
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.2
+	sphere.height = 0.34
+	sphere.radial_segments = 8
+	sphere.rings = 4
 	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_add_cone(st, 4, 0.035, 0.03, 0.0, 0.14, Color.BLACK)
-	_add_cone(st, 6, 0.17, 0.0, 0.08, 0.36, Color.WHITE)
-	_add_cone(st, 6, 0.12, 0.0, 0.22, 0.50, Color.WHITE)
+	st.create_from(sphere, 0)
+	st.deindex()
+	var mesh := st.commit()
+	var mdt := MeshDataTool.new()
+	mdt.create_from_surface(mesh, 0)
+	for i in mdt.get_vertex_count():
+		var v := mdt.get_vertex(i)
+		var lump := 1.0 + 0.18 * sin(v.x * 23.0 + v.z * 17.0) * cos(v.y * 19.0)
+		mdt.set_vertex(i, Vector3(v.x * lump, v.y * lump + 0.14, v.z * lump))
+	mesh.clear_surfaces()
+	mdt.commit_to_surface(mesh)
+	st.create_from(mesh, 0)
+	st.index()
 	st.generate_normals()
 	return st.commit()
-
-
-func _add_cone(st: SurfaceTool, sides: int, bottom_radius: float, top_radius: float,
-		bottom_y: float, top_y: float, colour: Color) -> void:
-	for i in sides:
-		var a0 := Vector3.RIGHT.rotated(Vector3.UP, TAU * i / sides)
-		var a1 := Vector3.RIGHT.rotated(Vector3.UP, TAU * (i + 1) / sides)
-		var b0 := a0 * bottom_radius + Vector3.UP * bottom_y
-		var b1 := a1 * bottom_radius + Vector3.UP * bottom_y
-		var t0 := a0 * top_radius + Vector3.UP * top_y
-		var t1 := a1 * top_radius + Vector3.UP * top_y
-		var tris := [b0, t0, b1, b1, t0, t1] if top_radius > 0.0 else [b0, t0, b1]
-		for v in tris:
-			st.set_color(colour)
-			st.add_vertex(v)

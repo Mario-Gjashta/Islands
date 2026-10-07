@@ -4,13 +4,18 @@ extends Node3D
 
 const HEX_SIZE := 1.0
 const GRID_RADIUS := 18
-## The sample island: a summit in the middle falling away through every layer
-## (by hex distance), plus a lower wooded island to the east.
-const SAMPLE_MOUNTAIN_PROFILE := [8, 7, 6, 5, 4, 3]
-const SAMPLE_EAST_ISLAND := {
+## The sample island, as (cell, layer) rings: a big rock tower in the middle
+## stepping down through jungle to white beaches, a wooded island to the
+## east, and a few sea stacks standing alone in the water.
+const SAMPLE_PROFILE := [8, 6, 5, 4, 3]
+const SAMPLE_EXTRAS := {
+	Vector2i(1, -1): 8, Vector2i(-1, 0): 7, Vector2i(2, -2): 6,
 	Vector2i(6, -3): 5, Vector2i(7, -3): 5, Vector2i(6, -2): 4, Vector2i(7, -4): 4,
 	Vector2i(5, -2): 3, Vector2i(8, -4): 3, Vector2i(8, -3): 4, Vector2i(6, -4): 3,
-	Vector2i(5, -3): 4, Vector2i(7, -2): 3,
+	Vector2i(5, -3): 4, Vector2i(7, -2): 3, Vector2i(8, -5): 6,
+	Vector2i(-6, 2): 6, Vector2i(-6, 3): 2, Vector2i(-7, 3): 2,
+	Vector2i(2, 5): 6, Vector2i(3, 5): 2,
+	Vector2i(-3, -4): 7, Vector2i(-3, -3): 3, Vector2i(-2, -4): 3,
 }
 ## Pointer travel (pixels) before a press counts as a pan instead of a tap.
 const DRAG_THRESHOLD := 12.0
@@ -40,6 +45,7 @@ func _ready() -> void:
 	randomize()
 	ghost.setup(HEX_SIZE)
 	camera.bounds_radius = HEX_SIZE * Hex.SQRT3 * GRID_RADIUS
+	camera.ground_height = sea.max_ground_y
 	hud.new_sea_requested.connect(func() -> void: new_sea(randi()))
 	hud.lower_mode_toggled.connect(_set_lower_mode)
 	hud.sample_island_requested.connect(build_sample_island)
@@ -57,13 +63,13 @@ func new_sea(new_seed: int) -> void:
 ## Raises a ready-made mountain island in the middle of the sea, to show off
 ## every layer at once.
 func build_sample_island() -> void:
-	var island := SAMPLE_EAST_ISLAND.duplicate()
+	var island := {}
 	for cell in grid.cells():
 		var d := Hex.distance(cell, Vector2i.ZERO)
 		var wobble := 1 if (cell.x * 7 + cell.y * 13) % 5 == 0 else 0
-		if d + wobble < SAMPLE_MOUNTAIN_PROFILE.size():
-			island[cell] = SAMPLE_MOUNTAIN_PROFILE[d + wobble]
-	island[Vector2i(1, -1)] = HexGrid.MAX_HEIGHT
+		if d + wobble < SAMPLE_PROFILE.size():
+			island[cell] = SAMPLE_PROFILE[d + wobble]
+	island.merge(SAMPLE_EXTRAS, true)
 	for cell: Vector2i in island:
 		if grid.set_height(cell, island[cell]):
 			sea.animate_cell(cell, grid.get_height(cell))

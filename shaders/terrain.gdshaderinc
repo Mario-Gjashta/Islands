@@ -17,16 +17,18 @@ uniform float layer_height = 0.42;
 uniform float blend_falloff = 1.3;
 // How far (in hexes) coastlines wander from the hex grid.
 uniform float coast_warp = 0.3;
-// How sharply high hexes rise to a point above their neighbours.
-uniform float peak_sharpness = 0.3;
-// Ridged crags and gullies carved into mountain ground, in layers.
-uniform float crag_strength = 0.55;
+// How tall (in layers) the rock towers on high hexes stand.
+uniform float pillar_height = 0.65;
+// 0 = smooth slopes on high ground, 1 = sharp terraced cliffs between layers.
+uniform float cliff_strength = 0.85;
+// Lumpy, uneven tops on high ground, in layers.
+uniform float crag_strength = 0.3;
 
 const float SQRT3 = 1.7320508;
 // The painting works in "paint units": one hex is 48 of them, whatever its
 // world size, so brush and noise scales stay put if the world is rescaled.
 const float PAINT_HEX = 48.0;
-// Layers above this start to peak and crag.
+// Layers above this start to form cliffs and towers.
 const float PEAK_BASE = 4.0;
 
 float hash(vec2 p) {
@@ -97,16 +99,18 @@ float cell_height(vec2 a) {
 }
 
 // Height in layers at a point (paint units). A gaussian blend of the two rings
-// of hexes around it gives soft contours; on top, every hex above the meadows
-// pushes up a pointed peak near its centre, growing faster the higher it is,
-// and ridged noise carves crags into mountain ground.
+// of hexes around it gives soft contours. High ground then breaks into sheer
+// terraced cliffs between layers, and every hex above the meadows pushes up a
+// steep-walled rock tower with a rounded top, taller the higher the hex.
 float terrain(vec2 p) {
 	vec2 warp = vec2(fbm(p * 0.012), fbm(p * 0.012 + vec2(5.2, 1.3))) - 0.5;
 	vec2 q = p + warp * PAINT_HEX * coast_warp * 2.0;
 	vec2 centre = axial_round(paint_to_axial(q));
+	// Rough tower outlines, shared by every hex.
+	float outline_noise = vnoise(q * 0.05) - 0.5;
 	float sum = 0.0;
 	float weight_sum = 0.0;
-	float spikes = 0.0;
+	float pillar = 0.0;
 	for (int dq = -2; dq <= 2; dq++) {
 		for (int dr = -2; dr <= 2; dr++) {
 			if (abs(dq + dr) > 2) {
@@ -115,24 +119,32 @@ float terrain(vec2 p) {
 			vec2 a = centre + vec2(float(dq), float(dr));
 			float h = cell_height(a);
 			vec2 d = (q - axial_to_paint(a)) / PAINT_HEX;
-			float w = exp(-dot(d, d) * blend_falloff);
+			// High hexes keep their height out to their edges, so rock rises
+			// in steep walls instead of soft cones.
+			float falloff = blend_falloff * (1.0 + 2.5 * smoothstep(PEAK_BASE, PEAK_BASE + 3.0, h));
+			float w = exp(-dot(d, d) * falloff);
 			sum += w * h;
 			weight_sum += w;
-			// Peaks sit a little off-centre so ranges don't look gridded.
-			vec2 jitter = (vec2(hash(a + 0.31), hash(a + 0.77)) - 0.5) * 0.6;
-			float above = max(h - PEAK_BASE, 0.0);
-			spikes += pow(above, 1.5) * exp(-length(d - jitter) * 2.6) * (0.7 + 0.6 * hash(a + 0.13));
+			float above = h - PEAK_BASE;
+			if (above > 0.0) {
+				// Towers sit off-centre with varied girth so ranges aren't gridded.
+				vec2 jitter = (vec2(hash(a + 0.31), hash(a + 0.77)) - 0.5) * 0.5;
+				float radius = 0.5 + 0.3 * hash(a + 0.51);
+				float dist = length(d - jitter) + outline_noise * 0.3;
+				float walls = 1.0 - smoothstep(radius - 0.06, radius + 0.02, dist);
+				float dome = 1.0 - 0.2 * min(dist / radius, 1.0) * min(dist / radius, 1.0);
+				pillar = max(pillar, pow(above, 1.3) * walls * dome * (0.7 + 0.6 * hash(a + 0.13)));
+			}
 		}
 	}
 	float h = sum / weight_sum;
-	float mountain = smoothstep(PEAK_BASE + 0.5, PEAK_BASE + 2.5, h);
-	float crags = ridged(q * 0.025) - 0.35;
-	return h + spikes * peak_sharpness + mountain * crag_strength * crags;
+	// Sheer steps between layers on high ground.
+	float high = smoothstep(PEAK_BASE - 0.5, PEAK_BASE + 0.5, h);
+	float terraced = floor(h) + smoothstep(0.3, 0.7, fract(h));
+	h = mix(h, terraced, high * cliff_strength);
+	float lumps = (fbm(q * 0.04) - 0.5) * crag_strength * high;
+	return h + pillar * pillar_height + lumps;
 }
-
-// Extra rise per layer, growing with height, so mountains tower over the
-// lowlands instead of stacking up in even steps.
-uniform float mountain_rise = 0.11;
 
 // The terrain height, baked once per change into a texture (see
 // height_bake.gdshader) so meshes and trees can look it up cheaply instead of
@@ -161,6 +173,10 @@ float baked_height(vec2 xz) {
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+// Extra rise per layer, growing with height, so towers soar over the
+// lowlands instead of stacking up in even steps.
+uniform float mountain_rise = 0.08;
+
 // Water is a flat surface at y = 0; land rises above it, steeper the higher
 // it goes.
 float surface_y(float h) {
@@ -177,10 +193,20 @@ vec3 srgb_to_linear(vec3 c) {
 	return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, step(c, vec3(0.04045)));
 }
 
-// How likely a spot is to hold a tree, from its height above the sea:
-// a few on meadows, forest on the hills, thinning to a tree line on the highlands.
-float tree_density(float lift) {
-	float meadow = smoothstep(1.15, 1.4, lift) * 0.12;
-	float forest = smoothstep(1.85, 2.25, lift) * 0.8;
-	return (meadow + forest) * (1.0 - smoothstep(3.0, 3.9, lift));
+// Surface normal of the baked terrain at a world xz position; `e` is the
+// sampling step in world units.
+vec3 baked_normal(vec2 xz, float e) {
+	float y = surface_y(baked_height(xz));
+	float yx = surface_y(baked_height(xz + vec2(e, 0.0)));
+	float yz = surface_y(baked_height(xz + vec2(0.0, e)));
+	return normalize(vec3(-(yx - y) / e, 1.0, -(yz - y) / e));
+}
+
+// How likely a spot is to hold a tree, from its height above the sea and how
+// flat it is (1 = level): scattered on meadows, thick jungle on the hills and
+// on every ledge and tower top flat enough to hold soil.
+float tree_density(float lift, float flatness) {
+	float meadow = smoothstep(1.1, 1.35, lift) * 0.3;
+	float forest = smoothstep(1.8, 2.2, lift) * 0.55;
+	return (meadow + forest) * smoothstep(0.7, 0.88, flatness);
 }
