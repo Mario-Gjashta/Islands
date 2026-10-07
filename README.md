@@ -6,27 +6,25 @@ See [`docs/concept.md`](docs/concept.md) for the full concept.
 ![First prototype](docs/screenshots/prototype.png)
 ![Close-up](docs/screenshots/close-up.png)
 
-## Status: a calm island builder
+## Status: look-and-feel sandbox
 
-The full design is in the concept doc (Google Doc). The current build keeps it
-simple and chill:
+The full design is in the concept doc (Google Doc). Gameplay is parked while
+the look is nailed down: tap a hex to raise it one level, right-click (or the
+Lower toggle) to lower it, and the terrain settles from the rules.
 
-- **Raise land anywhere**: pick one of three land pieces (1–4 hexes, plus rock
-  and spring pieces) and tap the sea. Every hex rises one level: deep sea,
-  reef, sandbank, beach, lowland, upland, peak.
-- **Land grows outward**: a land cell can only rise one level above its
-  neighbours (rock two). Underwater you can pile up freely. Hovering explains
-  any spot you can't build on.
-- **Emergent terrain** settles after every piece (`scripts/terrain_rules.gd`):
-  beach on open coasts and marsh on calm ones; forest in lowland near a spring
-  or sheltered from the wind, scrub on windward coasts, meadow otherwise; bare
-  rock on uplands facing open sea and forested hills where sheltered; peaks;
-  lagoons in enclosed shallows.
-- **Modes**: Voyage (24 pieces, then a summary) and Drift (endless pieces,
-  free lowering, a sample island).
+**Terrain comes from how cells connect** (`scripts/terrain_rules.gd`):
 
-The boat, currents, tides, species and scoring from the design are parked for
-later.
+| Level | Becomes |
+| --- | --- |
+| 1–2 reef, sandbank | Lagoon when land encloses it |
+| 3 sea level | Beach on an open coast, marsh on a calm one |
+| 4 lowland | Cliff if it drops straight into water; forest when sheltered from the wind; scrub on a windward coast; otherwise meadow |
+| 5 upland | Cliff if it drops straight into water; alpine meadow with scree when it's high ground all around; otherwise hill forest |
+| 6 peak | Bare rock, paler at the summit |
+
+So an island's edge is a beach where sea-level land meets the water, and a
+cliff where higher land drops straight in. The wind blows one way per sea
+(compass in the panel).
 
 ## Play in the browser
 
@@ -48,13 +46,14 @@ godot --path .
 
 | Input | Action |
 | --- | --- |
-| Tap / click the sea | Raise the selected piece (on touch: tap to preview, tap again to place) |
-| 1 / 2 / 3 or tap a card | Select a piece |
-| R, right-click or Rotate | Rotate the piece |
-| Lower (Drift) or Tab | Lower one cell, free |
+| Tap / click | Raise the hex one level (or lower it in Lower mode) |
+| Right-click | Lower the hex one level |
 | Drag, middle-drag, WASD / arrows | Pan |
 | Q / E | Rotate the view |
 | Wheel / pinch (trackpad or two fingers) | Zoom at the pointer |
+| Tab | Toggle Raise / Lower mode |
+| R | New sea (new seed) |
+| Sample island | Raise a ready-made island showing every terrain |
 
 ## How it works
 

@@ -21,7 +21,7 @@ uniform float coast_warp = 0.42;
 // How sharply high cells rise to a summit; mirrored in sea_renderer.gd.
 uniform float peak_sharpness = 0.38;
 // Depth (in levels) of the ridges and gullies erosion carves into mountains.
-uniform float erosion_strength = 0.55;
+uniform float erosion_strength = 0.3;
 
 const float SQRT3 = 1.7320508;
 // The painting works in "paint units": one hex is 48 of them, whatever its
@@ -122,7 +122,10 @@ float terrain_fields(vec2 p, out vec3 fields) {
 			vec4 state = cell_state(a);
 			float h = state.r;
 			vec2 d = (q - axial_to_paint(a)) / PAINT_HEX;
-			float w = exp(-dot(d, d) * blend_falloff);
+			// Rock keeps its height out to its edges, so cliffs drop in steep
+			// walls instead of soft slopes.
+			float falloff = blend_falloff * (1.0 + 2.2 * state.a * step(sea_level, h));
+			float w = exp(-dot(d, d) * falloff);
 			sum += w * h;
 			field_sum += w * state.gba;
 			weight_sum += w;

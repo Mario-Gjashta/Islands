@@ -11,12 +11,8 @@ func _init() -> void:
 	_test_grid_bounds_and_count()
 	_test_grid_set_height_clamps()
 	_test_generate_is_deterministic()
-	_test_piece_rotation()
-	_test_slope_rule()
-	_test_rock_rule()
 	_test_terrain_emerges()
 	_test_lagoon()
-	_test_voyage_ends()
 	if _failures == 0:
 		print("All tests passed.")
 	else:
@@ -28,11 +24,6 @@ func _check(condition: bool, message: String) -> void:
 	if not condition:
 		_failures += 1
 		printerr("FAIL: ", message)
-
-
-## A flat deep sea, for rule tests.
-func _empty_game(mode := GameState.Mode.DRIFT) -> GameState:
-	return GameState.new(HexGrid.new(8), mode, 1)
 
 
 func _test_hex_round_trip() -> void:
@@ -81,45 +72,6 @@ func _test_generate_is_deterministic() -> void:
 	_check(same, "same seed gives the same sea")
 
 
-func _test_piece_rotation() -> void:
-	for shape in Piece.SHAPES:
-		var piece := Piece.new(Piece.Kind.LAND, shape)
-		var turned := piece
-		for i in 6:
-			turned = turned.rotated()
-		_check(turned.offsets == piece.offsets, "six turns return %s to start" % [shape])
-		# Rotation keeps every cell touching the shape.
-		for o in piece.rotated().offsets:
-			_check(Hex.distance(o, Vector2i.ZERO) <= 3, "rotated offsets stay close")
-
-
-func _test_slope_rule() -> void:
-	var game := _empty_game()
-	var single := Piece.new()
-	_check(game.placement_error(single, Vector2i(1, 0)) == "", "deep sea can become reef")
-	game.grid.set_height(Vector2i(1, 0), HexGrid.Level.REEF)
-	_check(game.placement_error(single, Vector2i(1, 0)) == "", "underwater, a lone reef can still rise")
-	game.grid.set_height(Vector2i(1, 0), HexGrid.Level.SANDBANK)
-	_check(game.placement_error(single, Vector2i(1, 0)) != "",
-		"a lone sandbank can't become land above deep neighbours")
-	game.grid.set_height(Vector2i(2, 0), HexGrid.Level.SANDBANK)
-	_check(game.placement_error(single, Vector2i(1, 0)) == "", "beside another sandbank it can")
-	_check(game.placement_error(single, Vector2i(30, 0)) != "", "off the edge of the sea")
-	var line := Piece.new(Piece.Kind.LAND, [Vector2i(0, 0), Vector2i(1, 0)])
-	_check(game.placement_error(line, Vector2i(1, 0)) == "", "a two-piece raises both sandbanks")
-
-
-func _test_rock_rule() -> void:
-	var game := _empty_game()
-	var cell := Vector2i(1, 0)
-	game.grid.set_height(cell, HexGrid.Level.SEA_LEVEL)
-	for n in Hex.neighbors(cell):
-		game.grid.set_height(n, HexGrid.Level.SANDBANK)
-	_check(game.placement_error(Piece.new(), cell) != "", "land can't rise two above its neighbours")
-	var rock := Piece.new(Piece.Kind.ROCK)
-	_check(game.placement_error(rock, cell) == "", "rock may stand two above its neighbours")
-
-
 func _test_terrain_emerges() -> void:
 	var grid := HexGrid.new(8)
 	var wind := 0
@@ -135,12 +87,20 @@ func _test_terrain_emerges() -> void:
 	grid.set_height(Vector2i.ZERO, HexGrid.Level.LOWLAND)
 	_check(TerrainRules.classify(grid, Vector2i.ZERO, wind, {}) == TerrainRules.Terrain.MEADOW,
 		"dry lowland is meadow")
-	grid.springs[Vector2i(1, 0)] = true
+	grid.set_height(Vector2i(-1, 0), HexGrid.Level.UPLAND)
 	_check(TerrainRules.classify(grid, Vector2i.ZERO, wind, {}) == TerrainRules.Terrain.FOREST,
-		"lowland near a spring is forest")
-	grid.rocks[Vector2i.ZERO] = true
+		"lowland in the lee of a hill is forest")
+	grid.set_height(Vector2i(1, 0), HexGrid.Level.DEEP)
 	_check(TerrainRules.classify(grid, Vector2i.ZERO, wind, {}) == TerrainRules.Terrain.CLIFF,
-		"rock settles into cliff")
+		"lowland dropping straight into water is a cliff")
+	grid.set_height(Vector2i(1, 0), HexGrid.Level.SEA_LEVEL)
+	grid.set_height(Vector2i.ZERO, HexGrid.Level.UPLAND)
+	_check(TerrainRules.classify(grid, Vector2i.ZERO, wind, {}) == TerrainRules.Terrain.HILL_FOREST,
+		"upland among lower land is hill forest")
+	for n in Hex.neighbors(Vector2i.ZERO):
+		grid.set_height(n, HexGrid.Level.UPLAND)
+	_check(TerrainRules.classify(grid, Vector2i.ZERO, wind, {}) == TerrainRules.Terrain.ALPINE,
+		"upland surrounded by upland is alpine meadow")
 	grid.set_height(Vector2i.ZERO, HexGrid.Level.PEAK)
 	_check(TerrainRules.classify(grid, Vector2i.ZERO, wind, {}) == TerrainRules.Terrain.PEAK,
 		"level six is a peak")
@@ -161,14 +121,3 @@ func _test_lagoon() -> void:
 	_check(not lagoons.has(Vector2i.ZERO), "a gap to deep sea opens it up")
 
 
-func _test_voyage_ends() -> void:
-	var game := _empty_game(GameState.Mode.VOYAGE)
-	_check(game.hand.size() == GameState.HAND_SIZE, "starts with a full hand")
-	_check(game.pieces_left() == GameState.VOYAGE_BAG_SIZE, "pieces come out of the bag")
-	game.bag.clear()
-	game.hand.clear()
-	_check(game.is_over(), "voyage ends when bag and hand are empty")
-	var drift := _empty_game()
-	drift.hand.clear()
-	drift.refill_hand()
-	_check(drift.hand.size() == GameState.HAND_SIZE and not drift.is_over(), "drift never runs out")

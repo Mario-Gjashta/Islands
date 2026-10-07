@@ -103,8 +103,6 @@ func _display(cell: Vector2i) -> Color:
 ## What a cell should look like: its height and its terrain's paint fields.
 func _target_state(cell: Vector2i) -> Color:
 	var fields: Vector3 = TerrainRules.FIELDS[grid.get_terrain(cell)]
-	if grid.springs.has(cell):
-		fields.y = 1.0
 	return Color(grid.get_height(cell), fields.x, fields.y, fields.z)
 
 

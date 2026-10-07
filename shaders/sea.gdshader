@@ -23,8 +23,11 @@ uniform vec3 grass_light_color = vec3(0.57, 0.63, 0.37);
 uniform vec3 grass_dark_color = vec3(0.33, 0.50, 0.30);
 uniform vec3 marsh_color = vec3(0.44, 0.52, 0.34);
 uniform vec3 pool_color = vec3(0.33, 0.66, 0.68);
-uniform vec3 rock_light_color = vec3(0.86, 0.78, 0.66);
-uniform vec3 rock_dark_color = vec3(0.60, 0.58, 0.52);
+uniform vec3 rock_light_color = vec3(0.84, 0.78, 0.68);
+uniform vec3 rock_dark_color = vec3(0.52, 0.50, 0.45);
+uniform vec3 alpine_color = vec3(0.64, 0.66, 0.42);
+uniform vec3 scree_color = vec3(0.62, 0.60, 0.54);
+uniform vec3 summit_color = vec3(0.72, 0.69, 0.62);
 
 varying vec2 paint_pos;
 varying vec3 world_pos;
@@ -119,17 +122,33 @@ vec3 paint_land(vec2 p, float lift, vec3 fields, inout vec3 normal, float y, out
 		* smoothstep(0.35, 0.5, fbm(p * 0.04 + 1.7) + (wet - 0.8));
 	land = mix(land, pool_color, pond);
 
-	// Rock: large soft bands running down the face, lit faces pale, the rest
-	// cool blue-grey, as in the references.
+	// Height progression, each band a flat zone with a ragged edge:
+	// upland turns to alpine meadow with scree, the peak to bare rock, and
+	// the summit pales.
+	float band_edge = (fbm(p * 0.04 + 5.0) - 0.5) * 0.5;
+	vec3 alpine = alpine_color * (0.95 + 0.1 * fbm(p * 0.01 + 8.0));
+	vec3 scree_blobs = voronoi(p * 0.03 + 3.0);
+	float scree = step(0.55, scree_blobs.z) * (1.0 - smoothstep(0.3, 0.45, scree_blobs.x));
+	alpine = mix(alpine, scree_color, scree);
+	float alpine_mask = smoothstep(1.95, 2.05, lift + band_edge) * smoothstep(0.25, 0.4, rockiness + veg * 0.5);
+	land = mix(land, alpine, alpine_mask * (1.0 - smoothstep(0.3, 0.6, veg)));
+
+	// Rock: matte, in large soft bands down the face; paler towards the summit.
 	vec2 across = normalize(vec2(-normal.z, normal.x) + vec2(1e-4));
 	float along = dot(p, across);
 	float bands = fbm(vec2(along * 0.035, y * 0.7));
-	vec3 rock = mix(rock_dark_color, rock_light_color, smoothstep(0.35, 0.7, bands));
+	// Mountain slopes stay grey-brown; only true cliffs (rock terrain facing
+	// the sea) show the pale cream faces.
+	vec3 rock = mix(rock_dark_color, rock_light_color, smoothstep(0.4, 0.8, bands) * mix(0.35, 1.0, smoothstep(0.5, 0.9, rockiness) * (1.0 - smoothstep(2.0, 2.8, lift))));
+	rock = mix(rock, summit_color, smoothstep(3.0, 3.8, lift + band_edge * 0.5));
 	float steep = 1.0 - smoothstep(0.6, 0.78, flatness + wobble);
 	float rock_mask = max(steep * smoothstep(0.5, 1.2, lift),
 		smoothstep(0.5, 0.9, rockiness) * (1.0 - smoothstep(0.72, 0.88, flatness)));
-	// Greenery clinging to ledges.
-	float ledges = smoothstep(0.5, 0.65, flatness) * smoothstep(0.45, 0.6, fbm(p * 0.04 + 2.3));
+	// Above the alpine band, everything is bare rock.
+	rock_mask = max(rock_mask, smoothstep(2.9, 3.0, lift + band_edge));
+	// Greenery clinging to ledges lower down.
+	float ledges = smoothstep(0.5, 0.65, flatness) * smoothstep(0.45, 0.6, fbm(p * 0.04 + 2.3))
+		* (1.0 - smoothstep(2.6, 3.0, lift));
 	rock_mask *= 1.0 - ledges * 0.8;
 	land = mix(land, rock, rock_mask);
 	rock_amount = rock_mask;
@@ -168,15 +187,16 @@ void fragment() {
 	} else {
 		float y = surface_y(h);
 		if (displace) {
-			n = baked_normal(world_pos.xz, 0.1 * hex_size);
-			ao = 1.0 - 0.35 * baked_cavity(world_pos.xz, 0.5 * hex_size);
+			// Coarse normals only: fine bumps would sparkle under flat light.
+			n = baked_normal(world_pos.xz, 0.4 * hex_size);
+			ao = 1.0 - 0.3 * baked_cavity(world_pos.xz, 0.6 * hex_size);
 		}
 		float rock_amount;
 		col = paint_land(p, -depth, fields, n, y, rock_amount);
 		// Fields and sand shade almost flat, like a painting; only rock keeps
 		// its full relief.
 		n = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.7 * (1.0 - rock_amount)));
-		ao = mix(1.0, ao, 0.3 + 0.7 * rock_amount);
+		ao = mix(1.0, ao, 0.2 + 0.5 * rock_amount);
 	}
 	ALBEDO = srgb_to_linear(col) * mix(1.0, ao, 0.35);
 	AO = ao;
@@ -188,7 +208,8 @@ void fragment() {
 // Painterly light: three flat tones (lit, half, shade) with soft edges,
 // instead of a smooth gradient that reads as plastic.
 void light() {
+	// Two flat tones: lit faces and shaded faces, with a soft seam.
 	float ndl = dot(NORMAL, LIGHT);
-	float lit = smoothstep(0.1, 0.25, ndl) * 0.55 + smoothstep(-0.25, -0.05, ndl) * 0.45;
+	float lit = 0.45 + 0.55 * smoothstep(0.05, 0.35, ndl);
 	DIFFUSE_LIGHT += LIGHT_COLOR / PI * lit * ATTENUATION;
 }

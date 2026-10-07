@@ -1,14 +1,14 @@
 class_name TerrainRules
 extends RefCounted
-## Emergent terrain: after every turn each cell settles into a type from its
-## height and surroundings. The player only shapes land; the sea, wind and
-## freshwater decide what it becomes.
+## Emergent terrain: after every change each cell settles into a type from
+## its height and its neighbours. The player only shapes land; how cells
+## connect decides what they become.
 
 enum Terrain {
 	DEEP, REEF, SANDBANK, LAGOON,
 	BEACH, MARSH,
 	MEADOW, SCRUB, FOREST,
-	CLIFF, HILL_FOREST,
+	CLIFF, HILL_FOREST, ALPINE,
 	PEAK,
 }
 
@@ -16,12 +16,13 @@ const NAMES := [
 	"Deep sea", "Reef", "Sandbank", "Lagoon",
 	"Beach", "Marsh",
 	"Meadow", "Scrub", "Forest",
-	"Cliff", "Hill forest",
+	"Cliff", "Hill forest", "Alpine meadow",
 	"Peak",
 ]
 
 ## How each terrain paints, as (vegetation, wetness, rock), each 0..1.
 ## The shaders blend these between hexes, so types melt into each other.
+## Rock also steepens the cell's slopes, which is what makes a cliff a cliff.
 const FIELDS := {
 	Terrain.DEEP: Vector3(0.0, 0.0, 0.0),
 	Terrain.REEF: Vector3(0.0, 0.0, 0.0),
@@ -30,17 +31,16 @@ const FIELDS := {
 	Terrain.BEACH: Vector3(0.0, 0.0, 0.0),
 	Terrain.MARSH: Vector3(0.55, 1.0, 0.0),
 	Terrain.MEADOW: Vector3(0.38, 0.0, 0.0),
-	Terrain.SCRUB: Vector3(0.22, 0.0, 0.2),
+	Terrain.SCRUB: Vector3(0.22, 0.0, 0.1),
 	Terrain.FOREST: Vector3(1.0, 0.0, 0.0),
-	Terrain.CLIFF: Vector3(0.15, 0.0, 1.0),
+	Terrain.CLIFF: Vector3(0.3, 0.0, 1.0),
 	Terrain.HILL_FOREST: Vector3(1.0, 0.0, 0.1),
-	Terrain.PEAK: Vector3(0.1, 0.0, 1.0),
+	Terrain.ALPINE: Vector3(0.3, 0.0, 0.35),
+	Terrain.PEAK: Vector3(0.05, 0.0, 1.0),
 }
 
 ## Open waves reach a coast if deep sea lies within this many cells.
 const WAVE_REACH := 3
-## Springs water lowland this many cells away.
-const FRESHWATER_REACH := 2
 
 
 ## Settles every cell. Wind blows along Hex.DIRECTIONS[wind_dir].
@@ -50,8 +50,15 @@ static func settle(grid: HexGrid, wind_dir: int) -> void:
 		grid.set_terrain(cell, classify(grid, cell, wind_dir, lagoons))
 
 
+## The rules, cell by cell:
+##   water      reef / sandbank, or lagoon when land encloses it
+##   sea level  beach on an open coast, marsh on a calm one
+##   lowland    cliff if it drops straight into water; forest when sheltered
+##              from the wind; scrub on a windward coast; otherwise meadow
+##   upland     cliff if it drops straight into water; otherwise hill forest,
+##              or alpine meadow when it's already high ground all around
+##   peak       bare rock
 static func classify(grid: HexGrid, cell: Vector2i, wind_dir: int, lagoons: Dictionary) -> int:
-	var rock := grid.rocks.has(cell)
 	match grid.get_height(cell):
 		HexGrid.Level.DEEP:
 			return Terrain.DEEP
@@ -60,35 +67,26 @@ static func classify(grid: HexGrid, cell: Vector2i, wind_dir: int, lagoons: Dict
 				return Terrain.LAGOON
 			return Terrain.REEF if grid.get_height(cell) == HexGrid.Level.REEF else Terrain.SANDBANK
 		HexGrid.Level.SEA_LEVEL:
-			if rock:
-				return Terrain.CLIFF
 			return Terrain.BEACH if is_exposed(grid, cell) else Terrain.MARSH
 		HexGrid.Level.LOWLAND:
-			if rock:
+			if faces_water(grid, cell):
 				return Terrain.CLIFF
-			if near_freshwater(grid, cell) or is_sheltered(grid, cell, wind_dir):
+			if is_sheltered(grid, cell, wind_dir):
 				return Terrain.FOREST
 			return Terrain.SCRUB if is_windward(grid, cell, wind_dir) else Terrain.MEADOW
 		HexGrid.Level.UPLAND:
-			if rock or (faces_water(grid, cell) and is_exposed(grid, cell)):
+			if faces_water(grid, cell):
 				return Terrain.CLIFF
+			if min_neighbor_height(grid, cell) >= HexGrid.Level.UPLAND:
+				return Terrain.ALPINE
 			return Terrain.HILL_FOREST
 	return Terrain.PEAK
 
 
-## Open waves: deep sea within reach.
+## Open waves: deep sea (or the map edge) within reach.
 static func is_exposed(grid: HexGrid, cell: Vector2i) -> bool:
 	for other in _cells_within(cell, WAVE_REACH):
-		if grid.contains(other) and grid.get_height(other) == HexGrid.Level.DEEP:
-			return true
-		if not grid.contains(other):
-			return true
-	return false
-
-
-static func near_freshwater(grid: HexGrid, cell: Vector2i) -> bool:
-	for spring: Vector2i in grid.springs:
-		if Hex.distance(spring, cell) <= FRESHWATER_REACH:
+		if not grid.contains(other) or grid.get_height(other) == HexGrid.Level.DEEP:
 			return true
 	return false
 
@@ -111,6 +109,13 @@ static func faces_water(grid: HexGrid, cell: Vector2i) -> bool:
 		if grid.is_water(n):
 			return true
 	return false
+
+
+static func min_neighbor_height(grid: HexGrid, cell: Vector2i) -> int:
+	var lowest := HexGrid.MAX_HEIGHT
+	for n in Hex.neighbors(cell):
+		lowest = mini(lowest, grid.get_height(n))
+	return lowest
 
 
 static func upwind(cell: Vector2i, wind_dir: int, steps: int) -> Vector2i:

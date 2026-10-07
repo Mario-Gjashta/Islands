@@ -1,7 +1,7 @@
 class_name HexGrid
 extends RefCounted
-## Hex-shaped map of cells. Each cell stores a height level, the terrain type
-## it has settled into, and whether a rock or spring piece raised it.
+## Hex-shaped map of cells. Each cell stores a height level and the terrain
+## type it has settled into.
 ##
 ## Logic lives here; rendering only reads it. Cells are stored in a square
 ## (2R+1)^2 array indexed by axial coords offset by the radius, which is also
@@ -17,12 +17,6 @@ const LEVEL_NAMES := ["Deep sea", "Reef", "Sandbank", "Sea level", "Lowland", "U
 var radius: int
 ## Side length of the backing square array (and the shader's cell texture).
 var side: int
-## Cells raised by a rock piece: they may stand two levels above a neighbour
-## and always settle into cliff.
-var rocks := {}
-## Cells raised by a spring piece: freshwater sources.
-var springs := {}
-
 var _heights := PackedByteArray()
 var _terrain := PackedByteArray()
 
@@ -91,8 +85,6 @@ func cells() -> Array[Vector2i]:
 func generate(seed_value: int) -> void:
 	_heights.fill(Level.DEEP)
 	_terrain.fill(0)
-	rocks.clear()
-	springs.clear()
 	var noise := FastNoiseLite.new()
 	noise.seed = seed_value
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
