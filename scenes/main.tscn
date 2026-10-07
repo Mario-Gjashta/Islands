@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/sea_renderer.gd" id="2_sea"]
@@ -7,8 +7,6 @@
 [ext_resource type="Script" path="res://scripts/hud.gd" id="5_hud"]
 
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="6_sky"]
-[ext_resource type="Script" path="res://scripts/boat.gd" id="7_boat"]
-[ext_resource type="Script" path="res://scripts/reach_overlay.gd" id="8_reach"]
 
 [sub_resource type="ShaderMaterial" id="SkyMaterial_painted"]
 shader = ExtResource("6_sky")
@@ -21,15 +19,11 @@ radiance_size = 0
 background_mode = 2
 sky = SubResource("Sky_painted")
 ambient_light_source = 2
-ambient_light_color = Color(0.62, 0.76, 0.95, 1)
+ambient_light_color = Color(0.62, 0.72, 0.86, 1)
 ambient_light_energy = 0.6
 tonemap_mode = 2
-tonemap_exposure = 1.0
-tonemap_white = 6.0
-fog_enabled = true
-fog_light_color = Color(0.62, 0.8, 0.94, 1)
-fog_density = 0.006
-fog_sky_affect = 0.0
+tonemap_exposure = 1.2
+tonemap_white = 8.0
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -38,23 +32,18 @@ script = ExtResource("1_main")
 environment = SubResource("Environment_sea")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
-transform = Transform3D(-0.330350, 0.611068, -0.719350, 0.000000, 0.762138, 0.647415, 0.943858, 0.213874, -0.251773, 0, 10, 0)
-light_color = Color(1, 0.95, 0.85, 1)
-light_energy = 1.2
+transform = Transform3D(0.5, 0.612372, -0.612372, 0, 0.707107, 0.707107, 0.866025, -0.353553, 0.353553, 0, 10, 0)
+light_color = Color(1, 0.94, 0.82, 1)
+light_energy = 1.25
 shadow_enabled = true
-shadow_opacity = 0.75
-directional_shadow_max_distance = 80.0
+shadow_opacity = 0.7
+shadow_blur = 1.5
+directional_shadow_max_distance = 60.0
 
 [node name="Sea" type="Node3D" parent="."]
 script = ExtResource("2_sea")
 
 [node name="Effects" type="Node3D" parent="."]
-
-[node name="Reach" type="Node3D" parent="."]
-script = ExtResource("8_reach")
-
-[node name="Boat" type="Node3D" parent="."]
-script = ExtResource("7_boat")
 
 [node name="GhostHex" type="Node3D" parent="."]
 script = ExtResource("3_ghost")

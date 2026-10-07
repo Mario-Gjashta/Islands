@@ -6,7 +6,7 @@ extends Node3D
 ## the sky.
 
 ## Pitch when zoomed all the way in, and all the way out.
-@export_range(5.0, 85.0) var near_pitch_degrees := 20.0
+@export_range(5.0, 85.0) var near_pitch_degrees := 30.0
 @export_range(5.0, 85.0) var far_pitch_degrees := 58.0
 @export var distance := 24.0
 @export var min_distance := 14.0

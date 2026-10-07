@@ -11,27 +11,30 @@ extends Node3D
 const SEA_SHADER := preload("res://shaders/sea.gdshader")
 const TREE_SHADER := preload("res://shaders/trees.gdshader")
 const BAKE_SHADER := preload("res://shaders/height_bake.gdshader")
-## Height map texels per side; about nine per hex across the map.
-const BAKE_SIZE := 640
+## Height map texels per side; about fourteen per hex across the map, fine
+## enough for per-pixel lighting detail.
+const BAKE_SIZE := 1024
 const RISE_DURATION := 0.7
 ## Terrain repaints more slowly than land rises, so changes read as settling.
 const REPAINT_DURATION := 1.4
 ## Passed to the shaders, which use them for sea_level and layer_height.
 const SEA_LEVEL := 2.5
-const LAYER_HEIGHT := 0.42
+const LAYER_HEIGHT := 0.45
 const MOUNTAIN_RISE := 0.08
-## Rock towers: mirror PEAK_BASE and pillar_height in terrain.gdshaderinc.
-const TOWER_BASE := 3.0
-const TOWER_HEIGHT := 1.1
+## Summits: mirror PEAK_BASE and peak_sharpness in terrain.gdshaderinc.
+const PEAK_BASE := 3.5
+const PEAK_SHARPNESS := 0.38
 ## Terrain mesh vertices per hex width; more = sharper peaks, more cost.
 const VERTS_PER_HEX := 9.0
 ## Tree candidates scattered per hex; the shader decides which ones grow.
-const TREES_PER_HEX := 18
+const TREES_PER_HEX := 10
 ## Headroom for GPU displacement, so culling never clips peaks or trees.
 const MAX_RISE := 9.0
 
 var hex_size := 1.0
 var grid: HexGrid
+## Direction towards the sun, for water glints and reflections.
+var sun_direction := Vector3(-0.6, 0.7, 0.35)
 
 var _image: Image
 var _texture: ImageTexture
@@ -115,8 +118,8 @@ func surface_y(cell: Vector2i) -> float:
 
 
 ## Rough height of the tallest ground within `radius` of a world point,
-## including rock towers, for keeping the camera out of the terrain.
-## Mirrors the tower and rise maths in terrain.gdshaderinc, approximately.
+## including summits, for keeping the camera out of the terrain.
+## Mirrors the peak and rise maths in terrain.gdshaderinc, approximately.
 func max_ground_y(world: Vector3, radius: float) -> float:
 	var centre := Hex.from_pixel(Vector2(world.x, world.z), hex_size)
 	var reach := int(ceil(radius / (hex_size * Hex.SQRT3))) + 1
@@ -127,7 +130,7 @@ func max_ground_y(world: Vector3, radius: float) -> float:
 			if not grid.contains(cell):
 				continue
 			var state := _display(cell)
-			var h := state.r + pow(maxf(state.r - TOWER_BASE, 0.0), 1.3) * TOWER_HEIGHT * state.a
+			var h := state.r + pow(maxf(state.r - PEAK_BASE, 0.0), 1.5) * PEAK_SHARPNESS
 			var lift := maxf(h - SEA_LEVEL, 0.0)
 			highest = maxf(highest, lift * LAYER_HEIGHT + pow(maxf(lift - 1.5, 0.0), 1.7) * MOUNTAIN_RISE)
 	return highest
@@ -214,6 +217,7 @@ func _make_material(shader: Shader) -> ShaderMaterial:
 	shader_material.set_shader_parameter("layer_height", LAYER_HEIGHT)
 	shader_material.set_shader_parameter("mountain_rise", MOUNTAIN_RISE)
 	shader_material.set_shader_parameter("bake_extent", _bake_extent)
+	shader_material.set_shader_parameter("sun_direction", sun_direction)
 	if shader != BAKE_SHADER:
 		shader_material.set_shader_parameter("height_map", _bake_viewport.get_texture())
 	return shader_material
@@ -265,27 +269,53 @@ func _could_grow_trees(cell: Vector2i) -> bool:
 	return false
 
 
-## A tree canopy: a low-poly squashed sphere, lumpy so neighbours overlap
-## into a jungle rather than a field of balls.
+## A tree: a short trunk under a canopy of overlapping clumps. Canopy
+## normals point out from the canopy's centre rather than each clump's, so it
+## shades as one soft, round mass the way painters treat foliage.
+## Vertex colour: R = foliage (1) or trunk (0), G = height within the canopy.
 func _tree_mesh() -> ArrayMesh:
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.2
-	sphere.height = 0.34
-	sphere.radial_segments = 8
-	sphere.rings = 4
 	var st := SurfaceTool.new()
-	st.create_from(sphere, 0)
-	st.deindex()
-	var mesh := st.commit()
-	var mdt := MeshDataTool.new()
-	mdt.create_from_surface(mesh, 0)
-	for i in mdt.get_vertex_count():
-		var v := mdt.get_vertex(i)
-		var lump := 1.0 + 0.18 * sin(v.x * 23.0 + v.z * 17.0) * cos(v.y * 19.0)
-		mdt.set_vertex(i, Vector3(v.x * lump, v.y * lump + 0.14, v.z * lump))
-	mesh.clear_surfaces()
-	mdt.commit_to_surface(mesh)
-	st.create_from(mesh, 0)
-	st.index()
-	st.generate_normals()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = 0.025
+	trunk.bottom_radius = 0.035
+	trunk.height = 0.2
+	trunk.radial_segments = 6
+	trunk.rings = 1
+	_append(st, trunk, Vector3(0.0, 0.1, 0.0), Vector3.ONE, Color(0.0, 0.0, 0.0), Vector3.ZERO, false)
+	var centre := Vector3(0.0, 0.3, 0.0)
+	var clumps := [
+		[Vector3(0.0, 0.32, 0.0), 0.16],
+		[Vector3(0.09, 0.26, 0.04), 0.12],
+		[Vector3(-0.08, 0.25, 0.05), 0.12],
+		[Vector3(0.02, 0.25, -0.09), 0.12],
+		[Vector3(0.0, 0.42, 0.01), 0.11],
+	]
+	for clump in clumps:
+		var sphere := SphereMesh.new()
+		sphere.radius = clump[1]
+		sphere.height = clump[1] * 1.8
+		sphere.radial_segments = 14
+		sphere.rings = 7
+		_append(st, sphere, clump[0], Vector3.ONE, Color(1.0, 0.0, 0.0), centre, true)
 	return st.commit()
+
+
+## Adds a primitive mesh to `st` at `offset`. Foliage gets canopy-centred
+## normals and its height in the canopy in vertex colour G.
+func _append(st: SurfaceTool, mesh: PrimitiveMesh, offset: Vector3, scale_by: Vector3,
+		colour: Color, canopy_centre: Vector3, foliage: bool) -> void:
+	var arrays := mesh.get_mesh_arrays()
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	for index in indices:
+		var v := verts[index] * scale_by + offset
+		var n := normals[index]
+		var c := colour
+		if foliage:
+			n = ((v - canopy_centre) * Vector3(1.0, 1.4, 1.0)).normalized().lerp(n, 0.25).normalized()
+			c.g = clampf((v.y - 0.14) / 0.4, 0.0, 1.0)
+		st.set_color(c)
+		st.set_normal(n)
+		st.add_vertex(v)

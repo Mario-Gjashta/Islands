@@ -11,10 +11,11 @@ func _initialize() -> void:
 	await process_frame
 	main.start_session(GameState.Mode.DRIFT, 42)
 	main.build_sample_island()
+	main.hud._rules.visible = false
 	var args_view: String = args[1] if args.size() > 1 else "near"
 	if args_view == "near":
-		main.camera.position = Vector3(-1.0, 0.0, -3.0)
-		main.camera.distance = 14.0
+		main.camera.position = Vector3(0.0, 0.0, 1.5)
+		main.camera.distance = 15.0
 	else:
 		main.camera.position = Vector3(2.0, 0.0, 0.0)
 		main.camera.distance = 30.0

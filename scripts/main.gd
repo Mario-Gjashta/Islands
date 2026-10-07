@@ -1,20 +1,21 @@
 extends Node3D
-## Runs a session: turns input into GameState moves, and keeps the sea, boat,
+## Runs a session: turns input into GameState moves, and keeps the sea,
 ## overlays and HUD in step with the rules.
 
 const HEX_SIZE := 1.0
 const GRID_RADIUS := 18
 ## Pointer travel (pixels) before a press counts as a pan instead of a tap.
 const DRAG_THRESHOLD := 12.0
-const DEFAULT_HINT := "Sail by tapping a dot (optional), then raise your piece on a green cell. Numbers are levels."
+const DEFAULT_HINT := "Pick a piece and tap the sea to raise it. Land grows outward from the shallows."
 
-## The sample island (Drift): a rock peak stepping down through cliffs and
-## forest to beaches, a ring island around a lagoon, a sea stack and a spring.
+## The sample island (Drift): a peak stepping down through hills and forest to
+## beaches, a ring island around a lagoon, and a spring.
 const SAMPLE_PROFILE := [6, 5, 4, 3]
-const SAMPLE_ROCKS := [Vector2i(0, 0), Vector2i(1, -1), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(7, -6)]
+const SAMPLE_ROCKS := [Vector2i(1, -1), Vector2i(2, -1)]
 const SAMPLE_SPRING := Vector2i(-2, 2)
 const SAMPLE_EXTRAS := {
-	Vector2i(7, -6): 5, Vector2i(-6, 1): 4,
+	Vector2i(-6, 1): 4, Vector2i(-5, 1): 3, Vector2i(-6, 2): 3, Vector2i(-7, 1): 3,
+	Vector2i(1, -1): 6, Vector2i(-1, 1): 5, Vector2i(2, -2): 5,
 }
 
 var grid: HexGrid
@@ -29,7 +30,6 @@ var _press_position := Vector2.ZERO
 ## Touch screens can't hover, so the first tap previews a placement and a
 ## second tap on the same spot confirms it.
 var _pending_anchor := Vector2i(1 << 20, 0)
-var _default_hint := DEFAULT_HINT
 ## Active touch points by finger index, for two-finger pinch zoom.
 var _touches := {}
 var _pinch_spread := 0.0
@@ -38,8 +38,6 @@ var _pinch_centre := Vector2.ZERO
 @onready var sea: SeaRenderer = $Sea
 @onready var effects: Node3D = $Effects
 @onready var ghost: GhostHex = $GhostHex
-@onready var reach: ReachOverlay = $Reach
-@onready var boat: Boat = $Boat
 @onready var camera: CameraRig = $CameraRig
 @onready var hud: Hud = $HUD
 
@@ -47,7 +45,7 @@ var _pinch_centre := Vector2.ZERO
 func _ready() -> void:
 	randomize()
 	ghost.setup(HEX_SIZE)
-	reach.setup(HEX_SIZE)
+	sea.sun_direction = ($Sun as DirectionalLight3D).global_transform.basis.z
 	camera.bounds_radius = HEX_SIZE * Hex.SQRT3 * GRID_RADIUS
 	camera.ground_height = sea.max_ground_y
 	hud.mode_chosen.connect(start_session)
@@ -58,7 +56,6 @@ func _ready() -> void:
 	hud.sample_island_requested.connect(build_sample_island)
 	# An empty sea to look at behind the menu.
 	_new_sea(randi())
-	boat.visible = false
 
 
 func start_session(mode: GameState.Mode, new_seed := -1) -> void:
@@ -66,9 +63,7 @@ func start_session(mode: GameState.Mode, new_seed := -1) -> void:
 	game = GameState.new(grid, mode, seed_value)
 	sea.sync_all()
 	selected = 0
-	boat.visible = true
-	boat.place_at(_cell_world(game.boat))
-	camera.position = Vector3(boat.position.x, 0.0, boat.position.z + 2.0)
+	camera.position = Vector3.ZERO
 	camera.zoom_at(1.0, Vector2.ZERO)
 	hud.start_session(mode)
 	_set_lower_mode(false)
@@ -80,7 +75,8 @@ func build_sample_island() -> void:
 	if game == null:
 		return
 	for cell in grid.cells():
-		var d := Hex.distance(cell, Vector2i.ZERO)
+		# A ragged outline, so the sample doesn't read as a hexagon.
+		var d := Hex.distance(cell, Vector2i.ZERO) + (1 if (cell.x * 7 + cell.y * 13) % 5 == 0 else 0)
 		if d < SAMPLE_PROFILE.size():
 			grid.set_height(cell, SAMPLE_PROFILE[d])
 	for cell in grid.cells():
@@ -94,9 +90,6 @@ func build_sample_island() -> void:
 	for cell in SAMPLE_ROCKS:
 		grid.rocks[cell] = true
 	grid.springs[SAMPLE_SPRING] = true
-	if not grid.is_water(game.boat):
-		game.boat = Vector2i(-5, 5)
-		boat.place_at(_cell_world(game.boat))
 	TerrainRules.settle(grid, game.wind_dir)
 	sea.sync_all()
 	_refresh()
@@ -113,11 +106,6 @@ func _new_sea(new_seed: int) -> void:
 
 func _show_menu() -> void:
 	game = null
-	boat.visible = false
-	reach.show_sail([])
-	reach.show_place([])
-	reach.show_valid([])
-	reach.show_levels({})
 	ghost.hide_ghost()
 	hud.show_menu()
 
@@ -189,7 +177,7 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 
 
 func _tap(screen_position: Vector2) -> void:
-	if game == null or game.is_over() or boat.is_sailing():
+	if game == null or game.is_over():
 		return
 	var cell := _cell_at_screen(screen_position)
 	if lower_mode:
@@ -206,9 +194,6 @@ func _tap(screen_position: Vector2) -> void:
 			return
 		_place(cell)
 		return
-	if game.sail_targets().has(cell):
-		_sail(cell)
-		return
 	if piece != null:
 		hud.set_hint(game.placement_error(piece, cell) + ".")
 
@@ -224,19 +209,6 @@ func _place(anchor: Vector2i) -> void:
 	_refresh()
 	if game.is_over():
 		hud.show_end(_summary())
-
-
-func _sail(target: Vector2i) -> void:
-	var path := game.sail_to(target)
-	var points: Array[Vector3] = []
-	for cell in path:
-		points.append(_cell_world(cell))
-	reach.show_sail([])
-	reach.show_valid([])
-	reach.show_levels({})
-	boat.sail(points)
-	await boat.arrived
-	_refresh()
 
 
 func _select(index: int) -> void:
@@ -276,32 +248,12 @@ func _refresh() -> void:
 	if game.mode == GameState.Mode.VOYAGE:
 		status += " · %d pieces left" % game.pieces_left()
 	hud.set_status(status)
-	_default_hint = DEFAULT_HINT if not game.sailed_this_turn \
-		else "Now raise a piece: tap a green cell."
-	hud.set_hint(_default_hint)
-	var sail_points: Array[Vector3] = []
-	for cell: Vector2i in game.sail_targets():
-		sail_points.append(_cell_world(cell, 0.04))
-	reach.show_sail(sail_points)
-	var place_points: Array[Vector3] = []
-	var levels := {}
-	for cell in grid.cells():
-		if Hex.distance(cell, game.boat) <= GameState.PLACE_RANGE:
-			levels[_cell_world(cell)] = grid.get_height(cell)
-			place_points.append(_cell_world(cell, 0.03))
-	reach.show_place(place_points)
-	reach.show_levels(levels)
-	var valid_points: Array[Vector3] = []
-	var piece := _selected_piece()
-	if piece != null and not lower_mode:
-		for anchor in game.valid_anchors(piece):
-			valid_points.append(_cell_world(anchor, 0.035))
-	reach.show_valid(valid_points)
+	hud.set_hint(DEFAULT_HINT)
 
 
 func _update_hover() -> void:
 	var cell := _cell_at_screen(get_viewport().get_mouse_position())
-	if not grid.contains(cell) or _dragging or boat.is_sailing():
+	if not grid.contains(cell) or _dragging:
 		ghost.hide_ghost()
 		hud.set_info("Open sea")
 		return
@@ -313,7 +265,7 @@ func _update_hover() -> void:
 	var anchor := _pending_anchor if _is_touch() else cell
 	if lower_mode:
 		ghost.show_cells([_cell_world(anchor, 0.05)], game.can_lower(anchor), true)
-		hud.set_hint("Tap a cell within 2 of the boat to lower it one level (free).")
+		hud.set_hint("Tap a cell to lower it one level (free).")
 		return
 	var piece := _selected_piece()
 	if piece == null:
@@ -325,9 +277,7 @@ func _update_hover() -> void:
 	var error := game.placement_error(piece, anchor)
 	ghost.show_cells(positions, error == "")
 	# Explain the spot under the pointer: what it would become, or why not.
-	if Hex.distance(anchor, game.boat) > GameState.PLACE_RANGE + 1:
-		hud.set_hint(_default_hint)
-	elif error == "":
+	if error == "":
 		var h := grid.get_height(anchor)
 		hud.set_hint("Raise here: %s → %s." % [HexGrid.level_name(h), HexGrid.level_name(h + 1)])
 	else:
@@ -337,8 +287,8 @@ func _update_hover() -> void:
 func _update_wind_arrow() -> void:
 	var cam := camera.camera
 	var dir_2d := Hex.to_pixel(Hex.DIRECTIONS[game.wind_dir], 1.0)
-	var from := cam.unproject_position(boat.position)
-	var to := cam.unproject_position(boat.position + Vector3(dir_2d.x, 0.0, dir_2d.y))
+	var from := cam.unproject_position(camera.position)
+	var to := cam.unproject_position(camera.position + Vector3(dir_2d.x, 0.0, dir_2d.y))
 	hud.set_wind_angle((to - from).angle())
 
 

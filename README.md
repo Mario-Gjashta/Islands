@@ -6,36 +6,27 @@ See [`docs/concept.md`](docs/concept.md) for the full concept.
 ![First prototype](docs/screenshots/prototype.png)
 ![Close-up](docs/screenshots/close-up.png)
 
-## Status: phase 1, the turn loop
+## Status: a calm island builder
 
-The full design is in the concept doc (Google Doc). Built so far:
+The full design is in the concept doc (Google Doc). The current build keeps it
+simple and chill:
 
-- **Height levels 0–6** (deep sea, reef, sandbank, sea level, lowland, upland,
-  peak) with **the slope rule**: land (level 3 and up) can stand at most one
-  level above its highest neighbour, so islands grow outward from the
-  shallows; underwater you can pile up freely. Rock pieces may stand two
-  above; that's how cliffs form.
-- **Readable rules**: cells where the selected piece fits glow green, nearby
-  cells show their level number, the panel explains the spot under the
-  pointer (or why it's blocked), and a How to play card opens on the first
-  session.
-- **Land pieces** of 1–4 hexes plus rock and spring pieces, in a **hand of 3**
-  drawn from a bag. Rotate before placing.
-- **The boat**: sail up to 3 cells across water (levels 0–2) each turn, then
-  raise a piece within 2 cells of it. Land blocks the boat, so you can wall
-  yourself in. You can't raise land under the boat.
-- **Emergent terrain** settles after every turn (`scripts/terrain_rules.gd`):
+- **Raise land anywhere**: pick one of three land pieces (1–4 hexes, plus rock
+  and spring pieces) and tap the sea. Every hex rises one level: deep sea,
+  reef, sandbank, beach, lowland, upland, peak.
+- **Land grows outward**: a land cell can only rise one level above its
+  neighbours (rock two). Underwater you can pile up freely. Hovering explains
+  any spot you can't build on.
+- **Emergent terrain** settles after every piece (`scripts/terrain_rules.gd`):
   beach on open coasts and marsh on calm ones; forest in lowland near a spring
-  or sheltered from the wind, scrub on windward coasts, meadow otherwise; cliff
-  on uplands facing open sea and hill forest where sheltered; peaks; and
-  lagoons in shallows enclosed by land. The wind blows one way per session
-  (compass in the panel). Terrain repaints softly as it changes.
-- **Modes**: Voyage (24 pieces, ends when they run out, with a summary) and
-  Drift (endless pieces, plus a free Lower action and a sample island).
+  or sheltered from the wind, scrub on windward coasts, meadow otherwise; bare
+  rock on uplands facing open sea and forested hills where sheltered; peaks;
+  lagoons in enclosed shallows.
+- **Modes**: Voyage (24 pieces, then a summary) and Drift (endless pieces,
+  free lowering, a sample island).
 
-Next phases: currents, tides and drifting sand (phase 2); habitats, species,
-field guide, scoring and quests (phase 3); events, fog, collectibles and boat
-upgrades (phase 4).
+The boat, currents, tides, species and scoring from the design are parked for
+later.
 
 ## Play in the browser
 
@@ -57,11 +48,10 @@ godot --path .
 
 | Input | Action |
 | --- | --- |
-| Tap / click a marked spot | Sail the boat there |
-| Tap / click near the boat | Raise the selected piece (on touch: tap to preview, tap again to place) |
+| Tap / click the sea | Raise the selected piece (on touch: tap to preview, tap again to place) |
 | 1 / 2 / 3 or tap a card | Select a piece |
 | R, right-click or Rotate | Rotate the piece |
-| Lower (Drift) or Tab | Lower one cell near the boat, free |
+| Lower (Drift) or Tab | Lower one cell, free |
 | Drag, middle-drag, WASD / arrows | Pan |
 | Q / E | Rotate the view |
 | Wheel / pinch (trackpad or two fingers) | Zoom at the pointer |
@@ -72,34 +62,25 @@ godot --path .
   coordinates and a hex-shaped map that stores one integer layer per cell
   (0 seabed, 1 reef, 2 shallows, 3 beach, 4 meadow, 5 hills, 6 highland,
   7 mountain, 8 summit).
-- **Rendering without hexes** (`scripts/sea_renderer.gd`, `shaders/`): a 3D
-  scene. The camera (`scripts/camera_rig.gd`) looks steeply down when zoomed
-  out and drops towards the horizon as you zoom in, so towers stand against a
-  painted sky (`sky.gdshader`). It tilts up rather than clip into rock.
-  Displayed heights live in a tiny float texture, one texel per hex.
-  `terrain.gdshaderinc` turns it into one height field: a gaussian blend of
-  nearby hexes with a noise warp (soft coastlines). High ground breaks into
-  terraced cliffs, and every hex above the meadows raises a steep-walled rock
-  tower, taller the higher the hex, so you get karst towers and sea stacks.
-  The field is baked into a height map whenever the land changes
-  (`height_bake.gdshader`), and the terrain mesh and trees read it.
-- **Painting** (`sea.gdshader`): per pixel, by height and slope. Water goes from
-  deep blue with dark brush-stroke waves to turquoise shallows, with seabed
-  shadows, caustics, coastal foam, swells and glints. On land: white sand,
-  lush greens on anything flat enough to hold soil (tower tops and ledges
-  too), and grey granite on steep faces, streaked and cracked top to bottom
-  with moss on the ledges.
-- **Trees** (`trees.gdshader`): rounded jungle canopies, scattered as
-  candidates over every hex. Each one reads the ground under it to decide
-  whether it grows: scattered on meadows (layer 4), thick on hills (5) and up,
-  and never on slopes too steep for soil. They grow and recede on their own as
-  the land rises and sinks.
-- **Feel** (`scripts/ghost_hex.gd`, `scripts/splash.gd`): the ghost hex drops out
-  when a tile lands and drifts back in; tiles rise with an overshoot tween and a
-  foam ripple.
-
-The shader's look is tuned by uniforms (`blend_falloff`, `coast_warp`, `sea_level`,
-and the palette colours), which you can tweak live on the `Sea` node's material.
+- **Rendering without hexes** (`scripts/sea_renderer.gd`, `shaders/`): each
+  cell's height and terrain (vegetation, wetness, rock) live in a tiny float
+  texture. `terrain.gdshaderinc` blends nearby hexes into one smooth field with
+  a two-scale coastline warp; high cells rise to off-centre summits and
+  erosion carves ridges and gullies into mountains. The field is baked into a
+  1024² height map whenever the land changes (`height_bake.gdshader`); the
+  terrain mesh, per-pixel normals, crevice shading and trees all read it.
+- **Painting and light** (`sea.gdshader`): sand with grain and ripples; grass in
+  patches, tufts and blades with meadow flowers; marsh pools and spring ponds;
+  faceted grey rock on steep ground. Soft wrap lighting with cool ambient
+  shadows. Water runs from deep blue to turquoise shallows with seabed shapes,
+  caustics and crisp foam, and reflects the sky with fresnel and sun glints.
+  Anti-aliased (MSAA 4×) at full screen resolution, no fog.
+- **Trees** (`trees.gdshader`): canopies of overlapping clumps shaded as one
+  soft mass, with leaf-clump detail; they grow where the terrain's vegetation
+  calls for them and recede when it doesn't.
+- **Feel** (`scripts/ghost_hex.gd`, `scripts/splash.gd`): a ghost of the piece
+  under the pointer (red where it can't go), rise tweens with foam ripples,
+  and terrain that repaints softly as it settles.
 
 ## Tests and screenshots
 

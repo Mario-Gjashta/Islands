@@ -13,24 +13,22 @@ uniform int grid_radius = 18;
 // 5 upland, 6 peak. The waterline sits between sandbank and sea level.
 uniform float sea_level = 2.5;
 // World units each layer above the sea rises.
-uniform float layer_height = 0.42;
+uniform float layer_height = 0.45;
 // Higher = tighter hexes, lower = softer, blobbier islands.
 uniform float blend_falloff = 1.3;
 // How far (in hexes) coastlines wander from the hex grid.
-uniform float coast_warp = 0.3;
-// How tall (in levels) rock towers stand; mirrored in sea_renderer.gd.
-uniform float pillar_height = 1.1;
-// 0 = smooth slopes on high ground, 1 = sharp terraced cliffs between layers.
-uniform float cliff_strength = 0.85;
-// Lumpy, uneven tops on high ground, in layers.
-uniform float crag_strength = 0.3;
+uniform float coast_warp = 0.42;
+// How sharply high cells rise to a summit; mirrored in sea_renderer.gd.
+uniform float peak_sharpness = 0.38;
+// Depth (in levels) of the ridges and gullies erosion carves into mountains.
+uniform float erosion_strength = 0.55;
 
 const float SQRT3 = 1.7320508;
 // The painting works in "paint units": one hex is 48 of them, whatever its
 // world size, so brush and noise scales stay put if the world is rescaled.
 const float PAINT_HEX = 48.0;
-// Rock above this level rises into cliffs and towers.
-const float PEAK_BASE = 3.0;
+// Cells above this level start to rise into peaks.
+const float PEAK_BASE = 3.5;
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -102,20 +100,19 @@ vec4 cell_state(vec2 a) {
 
 // Height in levels at a point (paint units), plus the blended terrain fields
 // (vegetation, wetness, rock). A gaussian blend of the two rings of hexes
-// around the point gives soft contours. Rock breaks into sheer terraced
-// cliffs between levels, and every rock hex above sea level pushes up a
-// steep-walled tower with a rounded top, taller the higher it stands. Hills
-// without rock stay soft and rounded.
+// around the point gives soft contours. High cells rise to off-centre summits,
+// sharper the higher they are, and erosion carves branching ridges and
+// gullies into mountain flanks; lowland gets gentle rolling hills.
 float terrain_fields(vec2 p, out vec3 fields) {
-	vec2 warp = vec2(fbm(p * 0.012), fbm(p * 0.012 + vec2(5.2, 1.3))) - 0.5;
+	// Two scales of warp: broad bends in the coast, and smaller coves and points.
+	vec2 warp = vec2(fbm(p * 0.008), fbm(p * 0.008 + vec2(5.2, 1.3))) - 0.5;
+	warp += (vec2(fbm(p * 0.025 + 3.1), fbm(p * 0.025 + vec2(8.4, 2.2))) - 0.5) * 0.5;
 	vec2 q = p + warp * PAINT_HEX * coast_warp * 2.0;
 	vec2 centre = axial_round(paint_to_axial(q));
-	// Rough tower outlines, shared by every hex.
-	float outline_noise = vnoise(q * 0.05) - 0.5;
 	float sum = 0.0;
 	vec3 field_sum = vec3(0.0);
 	float weight_sum = 0.0;
-	float pillar = 0.0;
+	float peaks = 0.0;
 	for (int dq = -2; dq <= 2; dq++) {
 		for (int dr = -2; dr <= 2; dr++) {
 			if (abs(dq + dr) > 2) {
@@ -124,35 +121,23 @@ float terrain_fields(vec2 p, out vec3 fields) {
 			vec2 a = centre + vec2(float(dq), float(dr));
 			vec4 state = cell_state(a);
 			float h = state.r;
-			float rock = state.a;
 			vec2 d = (q - axial_to_paint(a)) / PAINT_HEX;
-			// High rock keeps its height out to its edges, so it rises in steep
-			// walls instead of soft cones.
-			float falloff = blend_falloff * (1.0 + 2.5 * rock * smoothstep(PEAK_BASE, PEAK_BASE + 2.0, h));
-			float w = exp(-dot(d, d) * falloff);
+			float w = exp(-dot(d, d) * blend_falloff);
 			sum += w * h;
 			field_sum += w * state.gba;
 			weight_sum += w;
-			float above = (h - PEAK_BASE) * rock;
-			if (above > 0.0) {
-				// Towers sit off-centre with varied girth so ranges aren't gridded.
-				vec2 jitter = (vec2(hash(a + 0.31), hash(a + 0.77)) - 0.5) * 0.5;
-				float radius = 0.5 + 0.3 * hash(a + 0.51);
-				float dist = length(d - jitter) + outline_noise * 0.3;
-				float walls = 1.0 - smoothstep(radius - 0.06, radius + 0.02, dist);
-				float dome = 1.0 - 0.2 * min(dist / radius, 1.0) * min(dist / radius, 1.0);
-				pillar = max(pillar, pow(above, 1.3) * walls * dome * (0.7 + 0.6 * hash(a + 0.13)));
-			}
+			// Summits sit a little off-centre so ranges don't look gridded.
+			vec2 jitter = (vec2(hash(a + 0.31), hash(a + 0.77)) - 0.5) * 0.6;
+			float above = max(h - PEAK_BASE, 0.0);
+			peaks += pow(above, 1.5) * exp(-length(d - jitter) * 2.4) * (0.75 + 0.5 * hash(a + 0.13));
 		}
 	}
 	float h = sum / weight_sum;
 	fields = field_sum / weight_sum;
-	// Sheer steps between levels on rocky high ground.
-	float high = smoothstep(PEAK_BASE - 0.5, PEAK_BASE + 0.5, h) * smoothstep(0.2, 0.6, fields.z);
-	float terraced = floor(h) + smoothstep(0.3, 0.7, fract(h));
-	h = mix(h, terraced, high * cliff_strength);
-	float lumps = (fbm(q * 0.04) - 0.5) * crag_strength * high;
-	return h + pillar * pillar_height + lumps;
+	float mountain = smoothstep(PEAK_BASE, PEAK_BASE + 1.6, h);
+	float gullies = ridged(q * 0.02 + warp * 2.0) - 0.45;
+	float rolling = (fbm(q * 0.025) - 0.5) * 0.3 * smoothstep(2.9, 3.8, h);
+	return h + peaks * peak_sharpness + mountain * erosion_strength * gullies + rolling;
 }
 
 float terrain(vec2 p) {
@@ -221,6 +206,46 @@ vec3 baked_normal(vec2 xz, float e) {
 	float yx = surface_y(baked_height(xz + vec2(e, 0.0)));
 	float yz = surface_y(baked_height(xz + vec2(0.0, e)));
 	return normalize(vec3(-(yx - y) / e, 1.0, -(yz - y) / e));
+}
+
+// Crevices and valleys: how far the ground sits below its surroundings, 0..1.
+float baked_cavity(vec2 xz, float r) {
+	float h = baked_height(xz);
+	float around = (baked_height(xz + vec2(r, 0.0)) + baked_height(xz - vec2(r, 0.0))
+		+ baked_height(xz + vec2(0.0, r)) + baked_height(xz - vec2(0.0, r))) * 0.25;
+	return clamp((around - h) * 1.6, 0.0, 1.0);
+}
+
+// Cellular noise: x = distance to the nearest feature, y = gap to the second
+// nearest (small along cell borders), z = a random id for the nearest cell.
+vec3 voronoi(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	float d1 = 8.0;
+	float d2 = 8.0;
+	float id = 0.0;
+	for (int y = -1; y <= 1; y++) {
+		for (int x = -1; x <= 1; x++) {
+			vec2 g = vec2(float(x), float(y));
+			vec2 o = vec2(hash(i + g), hash(i + g + 17.3));
+			float d = length(g + o - f);
+			if (d < d1) {
+				d2 = d1;
+				d1 = d;
+				id = hash(i + g + 5.1);
+			} else if (d < d2) {
+				d2 = d;
+			}
+		}
+	}
+	return vec3(d1, d2 - d1, id);
+}
+
+// Soft, painterly sunlight: light wraps a little past the terminator and
+// rolls off gently, so forms read round instead of hard-edged.
+float wrap_light(vec3 normal, vec3 light_dir, float wrap) {
+	float ndl = dot(normal, light_dir);
+	return smoothstep(0.0, 1.0, clamp((ndl + wrap) / (1.0 + wrap), 0.0, 1.0));
 }
 
 // How likely a spot is to hold a tree, from the terrain's vegetation

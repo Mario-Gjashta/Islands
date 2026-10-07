@@ -13,8 +13,7 @@ func _init() -> void:
 	_test_generate_is_deterministic()
 	_test_piece_rotation()
 	_test_slope_rule()
-	_test_rock_and_boat_rules()
-	_test_sailing()
+	_test_rock_rule()
 	_test_terrain_emerges()
 	_test_lagoon()
 	_test_voyage_ends()
@@ -31,12 +30,9 @@ func _check(condition: bool, message: String) -> void:
 		printerr("FAIL: ", message)
 
 
-## A flat deep sea with the boat at the origin, for rule tests.
+## A flat deep sea, for rule tests.
 func _empty_game(mode := GameState.Mode.DRIFT) -> GameState:
-	var grid := HexGrid.new(8)
-	var game := GameState.new(grid, mode, 1)
-	game.boat = Vector2i.ZERO
-	return game
+	return GameState.new(HexGrid.new(8), mode, 1)
 
 
 func _test_hex_round_trip() -> void:
@@ -108,39 +104,20 @@ func _test_slope_rule() -> void:
 		"a lone sandbank can't become land above deep neighbours")
 	game.grid.set_height(Vector2i(2, 0), HexGrid.Level.SANDBANK)
 	_check(game.placement_error(single, Vector2i(1, 0)) == "", "beside another sandbank it can")
-	_check(game.valid_anchors(single).has(Vector2i(1, 0)), "valid anchors list it")
-	_check(game.placement_error(single, Vector2i(3, 0)) != "", "too far from the boat")
+	_check(game.placement_error(single, Vector2i(30, 0)) != "", "off the edge of the sea")
 	var line := Piece.new(Piece.Kind.LAND, [Vector2i(0, 0), Vector2i(1, 0)])
 	_check(game.placement_error(line, Vector2i(1, 0)) == "", "a two-piece raises both sandbanks")
 
 
-func _test_rock_and_boat_rules() -> void:
+func _test_rock_rule() -> void:
 	var game := _empty_game()
 	var cell := Vector2i(1, 0)
 	game.grid.set_height(cell, HexGrid.Level.SEA_LEVEL)
 	for n in Hex.neighbors(cell):
-		if n != Vector2i.ZERO:
-			game.grid.set_height(n, HexGrid.Level.SANDBANK)
+		game.grid.set_height(n, HexGrid.Level.SANDBANK)
 	_check(game.placement_error(Piece.new(), cell) != "", "land can't rise two above its neighbours")
 	var rock := Piece.new(Piece.Kind.ROCK)
 	_check(game.placement_error(rock, cell) == "", "rock may stand two above its neighbours")
-	game.grid.set_height(Vector2i.ZERO, HexGrid.Level.SANDBANK)
-	game.grid.set_height(Vector2i(-1, 0), HexGrid.Level.SANDBANK)
-	_check(game.placement_error(Piece.new(), Vector2i.ZERO) != "",
-		"can't raise the boat's own cell to land")
-
-
-func _test_sailing() -> void:
-	var game := _empty_game()
-	_check(game.sail_targets().has(Vector2i(3, 0)), "boat reaches three cells")
-	_check(not game.sail_targets().has(Vector2i(4, 0)), "but not four")
-	for n in Hex.neighbors(Vector2i.ZERO):
-		game.grid.set_height(n, HexGrid.Level.SEA_LEVEL)
-	_check(game.sail_targets().is_empty(), "land on every side walls the boat in")
-	game.grid.set_height(Vector2i(1, 0), HexGrid.Level.SANDBANK)
-	var path := game.sail_to(Vector2i(2, 0))
-	_check(path == [Vector2i(1, 0), Vector2i(2, 0)], "sails through the gap over the sandbank")
-	_check(game.sail_targets().is_empty(), "only one sail per turn")
 
 
 func _test_terrain_emerges() -> void:

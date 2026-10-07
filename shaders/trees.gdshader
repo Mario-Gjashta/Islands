@@ -2,15 +2,18 @@ shader_type spatial;
 render_mode specular_disabled, cull_back;
 
 // Tree canopies are scattered over every hex as candidates; each one reads
-// the terrain under it and decides whether it grows, so the jungle spreads
-// and recedes on its own as land rises and sinks.
+// the terrain under it and decides whether it grows, so woods spread and
+// recede on their own as land rises and sinks.
 #include "res://shaders/terrain.gdshaderinc"
 
-uniform vec3 leaf_light_color = vec3(0.40, 0.60, 0.25);
-uniform vec3 leaf_dark_color = vec3(0.16, 0.36, 0.17);
+uniform vec3 leaf_light_color = vec3(0.46, 0.64, 0.27);
+uniform vec3 leaf_dark_color = vec3(0.15, 0.33, 0.16);
+uniform vec3 trunk_color = vec3(0.40, 0.30, 0.22);
 
 varying float tint;
-varying float shade;
+varying float canopy_height;
+varying float foliage;
+varying vec3 local_pos;
 
 void vertex() {
 	vec3 origin = MODEL_MATRIX[3].xyz;
@@ -18,22 +21,33 @@ void vertex() {
 	float h = baked_height(origin.xz);
 	float flatness = baked_normal(origin.xz, 0.15 * hex_size).y;
 	float chance = hash(origin.xz * 3.17 + 0.5);
-	// Patchy groves rather than an even carpet.
 	// Only on land; patchy groves rather than an even carpet.
 	float density = tree_density(baked_vegetation(origin.xz), flatness)
 		* step(sea_level + 0.3, h) * (0.6 + 0.8 * fbm(p * 0.008));
 	float grow = smoothstep(chance, chance + 0.12, density);
-	float size = (0.55 + 0.6 * hash(origin.xz * 7.3)) * grow;
+	float size = (0.6 + 0.6 * hash(origin.xz * 7.3)) * grow;
+	local_pos = VERTEX;
 	VERTEX *= size;
 	VERTEX.y += surface_y(h) - 0.04;
 	tint = hash(origin.xz * 1.9);
-	// Lower parts of each canopy sit in their own shadow.
-	shade = smoothstep(-0.05, 0.2, VERTEX.y - surface_y(h));
+	foliage = COLOR.r;
+	canopy_height = COLOR.g;
 }
 
 void fragment() {
-	vec3 leaf = mix(leaf_dark_color, leaf_light_color, tint * 0.8 + 0.1);
-	leaf *= 0.82 + 0.22 * shade;
-	ALBEDO = srgb_to_linear(leaf);
+	// Leaf clumps: cellular noise over the canopy breaks it into lit bunches
+	// with darker gaps.
+	vec3 clumps = voronoi(local_pos.xz * 18.0 + local_pos.y * 9.0 + tint * 13.0);
+	vec3 leaf = mix(leaf_dark_color, leaf_light_color, 0.25 + 0.6 * canopy_height + 0.2 * (tint - 0.5));
+	leaf *= 0.85 + 0.25 * clumps.z;
+	leaf *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.12, clumps.y));
+	vec3 col = mix(trunk_color, leaf, foliage);
+	ALBEDO = srgb_to_linear(col);
+	// Underside of the canopy sits in its own shade.
+	AO = mix(0.55, 1.0, canopy_height);
 	ROUGHNESS = 1.0;
+}
+
+void light() {
+	DIFFUSE_LIGHT += LIGHT_COLOR / PI * wrap_light(NORMAL, LIGHT, 0.6) * ATTENUATION;
 }

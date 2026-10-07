@@ -198,7 +198,7 @@ func _build_hand_bar() -> void:
 	_lower_button.toggle_mode = true
 	_lower_button.focus_mode = Control.FOCUS_NONE
 	_lower_button.custom_minimum_size = Vector2(86, 84)
-	_lower_button.tooltip_text = "Drift only: lower one cell near the boat (free)"
+	_lower_button.tooltip_text = "Drift only: lower one cell (free)"
 	_lower_button.toggled.connect(lower_mode_toggled.emit)
 	_hand_bar.add_child(_lower_button)
 
@@ -207,7 +207,7 @@ func _build_menu() -> void:
 	_menu = _centered_panel()
 	var box: VBoxContainer = _menu.get_meta("box")
 	box.add_child(_label("Island Raiser", 34))
-	var tagline := _label("Sail a small boat, raise land from the seabed, and let the sea and the wind decide what grows.", 15, 0.85)
+	var tagline := _label("Raise land from the seabed, piece by piece, and let the sea and the wind decide what grows.", 15, 0.85)
 	tagline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tagline.custom_minimum_size = Vector2(420, 0)
 	box.add_child(tagline)
@@ -226,17 +226,13 @@ func _build_rules() -> void:
 	_rules.visible = false
 	var box: VBoxContainer = _rules.get_meta("box")
 	box.add_child(_label("How to play", 26))
-	var text := _label("""Each turn:
-1. Sail (optional): tap a white dot. The boat moves up to 3 cells, over water only.
-2. Raise: pick a piece below and tap a green cell. Every hex of the piece rises one level. You can only build within 2 cells of the boat.
+	var text := _label("""Pick a piece below and tap the sea. Every hex of the piece rises one level: deep sea, reef, sandbank, beach, lowland, upland, peak.
 
-Levels: 0 deep sea · 1 reef · 2 sandbank · 3 beach · 4 lowland · 5 upland · 6 peak. The numbers on the map show them.
+Underwater you can build anywhere. Land grows outward: a cell can only rise one level above its neighbours, so build up the shallows around it first. Rock pieces (grey) may stand taller: that's how cliffs form.
 
-The slope rule: land (level 3 and up) can only rise one level above its highest neighbour, so islands grow outward from the shallows. Underwater you can pile up freely. Rock pieces may stand two levels above: that's how cliffs form.
+You never choose forest or beach. After each piece the land settles by itself: open coasts become beach, calm ones marsh; lowland near a spring (blue piece) or sheltered from the wind grows forest; windward coasts stay scrub.
 
-You never choose forest or beach. After each turn the land settles by itself: open coasts become beach, calm ones marsh; lowland near a spring (blue piece) or sheltered from the wind grows forest; windward coasts stay scrub.
-
-Land blocks the boat, so don't wall yourself in.""", 14, 0.92)
+R or right-click rotates the piece. Drag to look around, scroll or pinch to zoom, Q / E to turn the view.""", 14, 0.92)
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text.custom_minimum_size = Vector2(460, 0)
 	box.add_child(text)
