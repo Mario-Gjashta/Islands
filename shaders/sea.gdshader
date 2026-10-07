@@ -5,85 +5,82 @@ render_mode specular_disabled, cull_back;
 
 // False for the flat far-ocean plane, which never needs relief.
 uniform bool displace = true;
-// Direction towards the sun (world space), for glints and reflections.
-uniform vec3 sun_direction = vec3(-0.6, 0.7, -0.3);
 
 // Palette in sRGB, measured from the reference paintings; converted at the end.
-uniform vec3 deep_color = vec3(0.13, 0.38, 0.47);
-uniform vec3 reef_color = vec3(0.16, 0.45, 0.53);
-uniform vec3 shallow_color = vec3(0.22, 0.58, 0.63);
-uniform vec3 lagoon_color = vec3(0.45, 0.72, 0.72);
-uniform vec3 stroke_color = vec3(0.09, 0.27, 0.36);
-uniform vec3 seabed_shadow_color = vec3(0.12, 0.40, 0.44);
-uniform vec3 seagrass_color = vec3(0.18, 0.42, 0.38);
-uniform vec3 foam_color = vec3(0.96, 0.98, 0.97);
-uniform vec3 sky_zenith_color = vec3(0.44, 0.65, 0.82);
-uniform vec3 sky_horizon_color = vec3(0.65, 0.81, 0.89);
-uniform vec3 wet_sand_color = vec3(0.78, 0.73, 0.63);
-uniform vec3 sand_color = vec3(0.84, 0.82, 0.74);
-uniform vec3 scrub_color = vec3(0.62, 0.62, 0.51);
-uniform vec3 grass_light_color = vec3(0.44, 0.61, 0.34);
-uniform vec3 grass_dark_color = vec3(0.28, 0.44, 0.33);
-uniform vec3 marsh_color = vec3(0.42, 0.50, 0.36);
-uniform vec3 pool_color = vec3(0.36, 0.60, 0.62);
-uniform vec3 rock_light_color = vec3(0.74, 0.77, 0.75);
-uniform vec3 rock_dark_color = vec3(0.42, 0.50, 0.56);
+uniform vec3 deep_color = vec3(0.21, 0.58, 0.69);
+uniform vec3 reef_color = vec3(0.19, 0.65, 0.70);
+uniform vec3 shallow_color = vec3(0.22, 0.73, 0.71);
+uniform vec3 lagoon_color = vec3(0.40, 0.82, 0.79);
+uniform vec3 stroke_color = vec3(0.15, 0.50, 0.63);
+uniform vec3 seabed_shadow_color = vec3(0.16, 0.52, 0.60);
+uniform vec3 seagrass_color = vec3(0.20, 0.50, 0.46);
+uniform vec3 foam_color = vec3(0.80, 0.90, 0.89);
+uniform vec3 foam_bright_color = vec3(0.94, 0.98, 0.97);
+uniform vec3 wet_sand_color = vec3(0.70, 0.66, 0.56);
+uniform vec3 sand_color = vec3(0.80, 0.76, 0.67);
+uniform vec3 scrub_color = vec3(0.66, 0.64, 0.42);
+uniform vec3 grass_light_color = vec3(0.57, 0.63, 0.37);
+uniform vec3 grass_dark_color = vec3(0.33, 0.50, 0.30);
+uniform vec3 marsh_color = vec3(0.44, 0.52, 0.34);
+uniform vec3 pool_color = vec3(0.33, 0.66, 0.68);
+uniform vec3 rock_light_color = vec3(0.86, 0.78, 0.66);
+uniform vec3 rock_dark_color = vec3(0.60, 0.58, 0.52);
 
 varying vec2 paint_pos;
 varying vec3 world_pos;
 
-// Small wind ripples on the water, as a world-space normal.
-vec3 water_normal(vec2 xz, float t) {
-	vec2 a = xz * 1.4 + t * vec2(0.25, 0.08);
-	vec2 b = xz * 3.1 - t * vec2(0.18, -0.3);
-	float e = 0.06;
-	float n = vnoise(a) * 0.6 + vnoise(b) * 0.4;
-	float nx = vnoise(a + vec2(e * 1.4, 0.0)) * 0.6 + vnoise(b + vec2(e * 3.1, 0.0)) * 0.4;
-	float nz = vnoise(a + vec2(0.0, e * 1.4)) * 0.6 + vnoise(b + vec2(0.0, e * 3.1)) * 0.4;
-	return normalize(vec3(-(nx - n) / e * 0.045, 1.0, -(nz - n) / e * 0.045));
-}
-
-vec3 sky_color(vec3 dir) {
-	return mix(sky_horizon_color, sky_zenith_color, smoothstep(0.0, 0.5, dir.y));
-}
-
-// Water body colour by depth, before reflections: broad, smooth and matte,
-// with long dark brush strokes on open water like the reference paintings.
-vec3 paint_water(vec2 p, float h, float depth, vec3 fields, out float foam) {
+// Water, painted like the references: flat turquoise broken into slowly
+// drifting lighter and darker patches, pale foam swirls that stream around
+// the coast, and a few white dashes of light. Everything moves slowly, so it
+// reads as liquid without ever looking like glass.
+vec3 paint_water(vec2 p, float h, float depth, vec3 fields) {
 	float t = TIME;
-	// Depth, nudged by broad noise so the shallows form uneven washes
-	// around the coast instead of an even ring.
+	// Slow domain warp: the whole pattern breathes and drifts.
+	vec2 flow = vec2(fbm(p * 0.006 + t * 0.02), fbm(p * 0.006 + vec2(7.1, 2.3) - t * 0.017)) - 0.5;
+	vec2 q = p + flow * 40.0;
+
+	// Depth, nudged by broad noise so the shallows form uneven washes.
 	float d = clamp(h / sea_level + (fbm(p * 0.008 + 11.0) - 0.5) * 0.3, 0.0, 1.0);
 	vec3 water = mix(deep_color, reef_color, smoothstep(0.15, 0.6, d));
 	water = mix(water, shallow_color, smoothstep(0.6, 0.92, d));
 	water = mix(water, lagoon_color, smoothstep(0.92, 1.0, d) * 0.5);
 
-	// Long, soft dark strokes drifting across open water.
-	float stroke = fbm(vec2(p.x * 0.003 + t * 0.003, p.y * 0.012));
-	float strokes = smoothstep(0.5, 0.62, stroke) * (1.0 - smoothstep(0.35, 0.7, d));
-	water = mix(water, stroke_color, strokes * 0.5);
-	// Broad slow variation so open water isn't one flat fill.
-	water *= 0.94 + 0.12 * fbm(p * 0.004 + vec2(t * 0.01, 0.0));
+	// Drifting patches: a few broad, flat darker and lighter shapes on open
+	// water, like wide brush strokes.
+	float patch = fbm(q * 0.005 + vec2(0.0, t * 0.008));
+	float open_water = 1.0 - smoothstep(0.5, 0.85, d);
+	water = mix(water, stroke_color, smoothstep(0.56, 0.62, patch) * 0.4 * open_water);
+	water = mix(water, lagoon_color, (1.0 - smoothstep(0.36, 0.42, patch)) * 0.18 * open_water);
 
-	// Rocks and seagrass showing through the shallows as soft dark shapes.
-	float bed = fbm(p * 0.01 + vec2(3.7, 1.1));
-	float bed_shadow = smoothstep(0.55, 0.63, bed) * smoothstep(0.4, 0.7, d) * (1.0 - smoothstep(0.92, 0.99, d));
-	water = mix(water, seabed_shadow_color, bed_shadow * 0.45);
+	// Seabed shapes seen through the shallows, wobbling with the surface.
+	vec2 refracted = p + flow * 12.0;
+	float bed = fbm(refracted * 0.01 + vec2(3.7, 1.1));
+	float bed_shadow = smoothstep(0.55, 0.62, bed) * smoothstep(0.4, 0.7, d) * (1.0 - smoothstep(0.92, 0.99, d));
+	water = mix(water, seabed_shadow_color, bed_shadow * 0.5);
 	float lagoon = smoothstep(0.3, 0.8, fields.y);
 	water = mix(water, lagoon_color, lagoon * 0.4);
-	float grass_beds = smoothstep(0.45, 0.6, fbm(p * 0.03));
+	float grass_beds = smoothstep(0.45, 0.6, fbm(refracted * 0.03));
 	water = mix(water, seagrass_color, grass_beds * lagoon * smoothstep(0.3, 0.7, fields.x) * 0.5);
 
-	// Foam: a thin, crisp, broken line at the shore.
-	float edge_noise = vnoise(p * 0.07 + vec2(t * 0.08));
-	float shore = 1.0 - smoothstep(0.0, 0.035 + 0.03 * edge_noise, depth);
-	float phase = depth * 12.0 + t * 1.1 + fbm(p * 0.03) * 4.0;
-	float swell = smoothstep(0.9, 0.96, sin(phase) * 0.5 + 0.5);
-	swell *= 1.0 - smoothstep(0.06, 0.3, depth);
-	swell *= smoothstep(0.45, 0.65, fbm(p * 0.05 - vec2(t * 0.05)));
-	foam = max(shore, swell * 0.6);
-	// The sea faces the whole sky, so it reads brighter than its pigment.
-	return water * 1.3;
+	// Foam swirls: pale ribbons streaming around the coast. They follow the
+	// coastline (bands of depth) and drift along it over time.
+	float swirl_phase = depth * 8.0 - t * 0.3 + fbm(q * 0.015) * 5.0;
+	float ribbons = smoothstep(0.6, 0.8, sin(swirl_phase) * 0.5 + 0.5);
+	ribbons *= smoothstep(0.52, 0.66, fbm(q * 0.012 + vec2(t * 0.02, 0.0)));
+	ribbons *= 1.0 - smoothstep(0.1, 0.6, depth);
+	water = mix(water, foam_color, ribbons * 0.55);
+	// A thin brighter line right at the shore.
+	float edge_noise = vnoise(q * 0.07);
+	float shore = 1.0 - smoothstep(0.0, 0.03 + 0.03 * edge_noise, depth);
+	water = mix(water, foam_bright_color, shore * 0.9);
+
+	// Sparse white dashes of light, drifting slowly.
+	vec2 dash_cell = floor(q / 26.0);
+	vec2 dash_pos = fract(q / 26.0) - 0.5;
+	float dash = step(0.9, hash(dash_cell)) * (1.0 - smoothstep(0.03, 0.08, length(dash_pos * vec2(0.4, 2.5))));
+	dash *= 0.5 + 0.5 * sin(t * 0.8 + hash(dash_cell + 2.0) * 6.28);
+	water = mix(water, foam_bright_color, dash * 0.8 * (1.0 - shore));
+	return water;
 }
 
 // Land from the blended terrain fields (vegetation, wetness, rock) and the
@@ -120,8 +117,8 @@ vec3 paint_land(vec2 p, float lift, vec3 fields, inout vec3 normal, float y) {
 	// cool blue-grey, as in the references.
 	vec2 across = normalize(vec2(-normal.z, normal.x) + vec2(1e-4));
 	float along = dot(p, across);
-	float bands = fbm(vec2(along * 0.03, y * 0.9));
-	vec3 rock = mix(rock_dark_color, rock_light_color, smoothstep(0.3, 0.75, bands));
+	float bands = fbm(vec2(along * 0.035, y * 0.7));
+	vec3 rock = mix(rock_dark_color, rock_light_color, smoothstep(0.35, 0.7, bands));
 	float steep = 1.0 - smoothstep(0.6, 0.78, flatness + wobble);
 	float rock_mask = max(steep * smoothstep(0.5, 1.2, lift),
 		smoothstep(0.5, 0.9, rockiness) * (1.0 - smoothstep(0.72, 0.88, flatness)));
@@ -157,20 +154,10 @@ void fragment() {
 	float ao = 1.0;
 	vec3 emission = vec3(0.0);
 	if (depth > 0.0) {
-		float foam;
-		vec3 body = paint_water(p, h, depth, fields, foam);
-		vec3 v = normalize(CAMERA_POSITION_WORLD - world_pos);
-		// Ripples fade out with distance so they never shimmer into noise.
-		float ripple_fade = 1.0 - smoothstep(8.0, 30.0, length(CAMERA_POSITION_WORLD - world_pos));
-		n = normalize(mix(vec3(0.0, 1.0, 0.0), water_normal(world_pos.xz, TIME), ripple_fade));
-		vec3 r = reflect(-v, n);
-		float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
-		float glint = pow(max(dot(r, normalize(sun_direction)), 0.0), 400.0) * 8.0
-			+ pow(max(dot(r, normalize(sun_direction)), 0.0), 40.0) * 0.25;
-		fresnel *= 1.0 - foam;
-		glint *= 1.0 - foam;
-		col = mix(body, foam_color, foam) * (1.0 - fresnel * 0.5);
-		emission = srgb_to_linear(sky_color(r)) * fresnel * 0.45 + vec3(1.0, 0.96, 0.88) * glint * 0.6;
+		// Water is painted in its final colours, untouched by scene lighting,
+		// so it matches the reference exactly.
+		emission = srgb_to_linear(paint_water(p, h, depth, fields));
+		col = vec3(0.0);
 	} else {
 		float y = surface_y(h);
 		if (displace) {
@@ -179,13 +166,17 @@ void fragment() {
 		}
 		col = paint_land(p, -depth, fields, n, y);
 	}
-	ALBEDO = srgb_to_linear(col) * mix(1.0, ao, 0.4);
+	ALBEDO = srgb_to_linear(col) * mix(1.0, ao, 0.35);
 	AO = ao;
 	EMISSION = emission;
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 	ROUGHNESS = 1.0;
 }
 
+// Painterly light: three flat tones (lit, half, shade) with soft edges,
+// instead of a smooth gradient that reads as plastic.
 void light() {
-	DIFFUSE_LIGHT += LIGHT_COLOR / PI * wrap_light(NORMAL, LIGHT, 0.5) * ATTENUATION;
+	float ndl = dot(NORMAL, LIGHT);
+	float lit = smoothstep(0.1, 0.25, ndl) * 0.55 + smoothstep(-0.25, -0.05, ndl) * 0.45;
+	DIFFUSE_LIGHT += LIGHT_COLOR / PI * lit * ATTENUATION;
 }

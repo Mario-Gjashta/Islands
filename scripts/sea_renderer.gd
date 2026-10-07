@@ -33,8 +33,6 @@ const MAX_RISE := 9.0
 
 var hex_size := 1.0
 var grid: HexGrid
-## Direction towards the sun, for water glints and reflections.
-var sun_direction := Vector3(-0.6, 0.7, 0.35)
 
 var _image: Image
 var _texture: ImageTexture
@@ -217,7 +215,6 @@ func _make_material(shader: Shader) -> ShaderMaterial:
 	shader_material.set_shader_parameter("layer_height", LAYER_HEIGHT)
 	shader_material.set_shader_parameter("mountain_rise", MOUNTAIN_RISE)
 	shader_material.set_shader_parameter("bake_extent", _bake_extent)
-	shader_material.set_shader_parameter("sun_direction", sun_direction)
 	if shader != BAKE_SHADER:
 		shader_material.set_shader_parameter("height_map", _bake_viewport.get_texture())
 	return shader_material

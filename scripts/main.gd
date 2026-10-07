@@ -45,7 +45,6 @@ var _pinch_centre := Vector2.ZERO
 func _ready() -> void:
 	randomize()
 	ghost.setup(HEX_SIZE)
-	sea.sun_direction = ($Sun as DirectionalLight3D).global_transform.basis.z
 	camera.bounds_radius = HEX_SIZE * Hex.SQRT3 * GRID_RADIUS
 	camera.ground_height = sea.max_ground_y
 	hud.mode_chosen.connect(start_session)

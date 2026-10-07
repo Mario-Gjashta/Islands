@@ -2,8 +2,8 @@ shader_type sky;
 
 // A painted sky: deep blue overhead fading to a pale haze at the horizon,
 // with big soft clouds lit from above.
-uniform vec3 zenith_color : source_color = vec3(0.40, 0.62, 0.82);
-uniform vec3 horizon_color : source_color = vec3(0.65, 0.81, 0.89);
+uniform vec3 zenith_color : source_color = vec3(0.18, 0.53, 0.64);
+uniform vec3 horizon_color : source_color = vec3(0.45, 0.72, 0.78);
 uniform vec3 cloud_light_color : source_color = vec3(1.0, 1.0, 1.0);
 uniform vec3 cloud_shadow_color : source_color = vec3(0.62, 0.72, 0.86);
 

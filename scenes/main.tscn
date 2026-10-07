@@ -19,8 +19,8 @@ radiance_size = 0
 background_mode = 2
 sky = SubResource("Sky_painted")
 ambient_light_source = 2
-ambient_light_color = Color(0.55, 0.68, 0.84, 1)
-ambient_light_energy = 0.5
+ambient_light_color = Color(0.6, 0.74, 0.84, 1)
+ambient_light_energy = 0.55
 tonemap_mode = 0
 
 [node name="Main" type="Node3D"]
@@ -32,9 +32,9 @@ environment = SubResource("Environment_sea")
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.5, 0.612372, -0.612372, 0, 0.707107, 0.707107, 0.866025, -0.353553, 0.353553, 0, 10, 0)
 light_color = Color(1, 0.96, 0.88, 1)
-light_energy = 0.82
+light_energy = 0.9
 shadow_enabled = true
-shadow_opacity = 0.55
+shadow_opacity = 0.5
 shadow_blur = 1.5
 directional_shadow_max_distance = 60.0
 

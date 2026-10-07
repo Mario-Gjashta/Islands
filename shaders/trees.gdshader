@@ -6,8 +6,8 @@ render_mode specular_disabled, cull_back;
 // recede on their own as land rises and sinks.
 #include "res://shaders/terrain.gdshaderinc"
 
-uniform vec3 leaf_light_color = vec3(0.46, 0.63, 0.36);
-uniform vec3 leaf_dark_color = vec3(0.26, 0.42, 0.30);
+uniform vec3 leaf_light_color = vec3(0.52, 0.62, 0.34);
+uniform vec3 leaf_dark_color = vec3(0.30, 0.47, 0.30);
 uniform vec3 trunk_color = vec3(0.40, 0.30, 0.22);
 
 varying float tint;
@@ -49,5 +49,7 @@ void fragment() {
 }
 
 void light() {
-	DIFFUSE_LIGHT += LIGHT_COLOR / PI * wrap_light(NORMAL, LIGHT, 0.6) * ATTENUATION;
+	float ndl = dot(NORMAL, LIGHT);
+	float lit = smoothstep(0.0, 0.3, ndl) * 0.5 + smoothstep(-0.5, -0.1, ndl) * 0.5;
+	DIFFUSE_LIGHT += LIGHT_COLOR / PI * lit * ATTENUATION;
 }
