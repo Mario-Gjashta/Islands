@@ -16,7 +16,15 @@ From the concept doc, the first prototype covers:
 Also in: a seeded sea generated from noise, rise and sink tweens with a splash
 ripple, pan and zoom, and a HUD with mode toggle and new-sea button.
 
-## Running
+## Play in the browser
+
+Every push to `main` (or the prototype branch) is exported to the web and deployed
+to GitHub Pages by `.github/workflows/pages.yml`. It's at
+**https://mario-gjashta.github.io/Islands/** once Pages is enabled
+(Settings → Pages → Source: **GitHub Actions**). It works on phones too: tap to
+raise, drag to pan, pinch to zoom.
+
+## Running locally
 
 Open the folder in Godot 4.3+ and press **F5**, or:
 
@@ -29,7 +37,7 @@ godot --path .
 | Tap / left-click | Raise the hex one layer (or lower it in Lower mode) |
 | Right-click | Lower the hex one layer |
 | Drag, middle-drag, WASD / arrows | Pan |
-| Wheel / pinch | Zoom at the pointer |
+| Wheel / pinch (trackpad or two fingers) | Zoom at the pointer |
 | Tab | Toggle Raise / Lower mode |
 | R | New sea (new seed) |
 
@@ -57,6 +65,9 @@ and the palette colours), which you can tweak live on the `Sea` node's material.
 ```sh
 # Logic tests (headless)
 godot --headless --path . -s res://tests/run_tests.gd
+
+# Web export (needs the 4.3 web export templates installed)
+godot --headless --path . --export-release "Web" build/web/index.html
 
 # Render the sample island to a PNG (needs a display, or xvfb-run on Linux)
 godot --path . -s res://tests/capture_screenshot.gd -- out.png

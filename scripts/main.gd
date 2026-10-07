@@ -14,6 +14,10 @@ var lower_mode := false
 var _pressing := false
 var _dragging := false
 var _press_position := Vector2.ZERO
+## Active touch points by finger index, for two-finger pinch zoom.
+var _touches := {}
+var _pinch_spread := 0.0
+var _pinch_centre := Vector2.ZERO
 
 @onready var sea: SeaRenderer = $Sea
 @onready var effects: Node2D = $Effects
@@ -66,8 +70,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _pressing and not _dragging \
 				and event.position.distance_to(_press_position) > DRAG_THRESHOLD:
 			_dragging = true
-		if _dragging or event.button_mask & MOUSE_BUTTON_MASK_MIDDLE:
+		var pinching := _touches.size() >= 2
+		if not pinching and (_dragging or event.button_mask & MOUSE_BUTTON_MASK_MIDDLE):
 			camera.pan_by_screen(event.relative)
+	elif event is InputEventScreenTouch:
+		_handle_touch(event)
+	elif event is InputEventScreenDrag:
+		_touches[event.index] = event.position
+		if _touches.size() == 2:
+			var spread := _touch_spread()
+			var centre := _touch_centre()
+			if _pinch_spread > 0.0:
+				camera.pan_by_screen(centre - _pinch_centre)
+				camera.zoom_at(spread / _pinch_spread, centre)
+			_pinch_spread = spread
+			_pinch_centre = centre
 	elif event is InputEventMagnifyGesture:
 		camera.zoom_at(event.factor, event.position)
 	elif event is InputEventPanGesture:
@@ -101,6 +118,31 @@ func _handle_mouse_button(event: InputEventMouseButton) -> void:
 		MOUSE_BUTTON_WHEEL_DOWN:
 			if event.pressed:
 				camera.zoom_at(1.0 / 1.1, event.position)
+
+
+## The first finger also arrives as an emulated mouse, so it still taps and pans;
+## a second finger turns the gesture into a pinch and cancels the tap.
+func _handle_touch(event: InputEventScreenTouch) -> void:
+	if event.pressed:
+		_touches[event.index] = event.position
+	else:
+		_touches.erase(event.index)
+	_pinch_spread = 0.0
+	if _touches.size() == 2:
+		_pinch_spread = _touch_spread()
+		_pinch_centre = _touch_centre()
+	if _touches.size() >= 2:
+		_dragging = true
+
+
+func _touch_spread() -> float:
+	var points: Array = _touches.values()
+	return points[0].distance_to(points[1])
+
+
+func _touch_centre() -> Vector2:
+	var points: Array = _touches.values()
+	return (points[0] + points[1]) / 2.0
 
 
 func _set_lower_mode(lowering: bool) -> void:
