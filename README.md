@@ -68,15 +68,18 @@ godot --path .
   erosion carves ridges and gullies into mountains. The field is baked into a
   1024² height map whenever the land changes (`height_bake.gdshader`); the
   terrain mesh, per-pixel normals, crevice shading and trees all read it.
-- **Painting and light** (`sea.gdshader`): sand with grain and ripples; grass in
-  patches, tufts and blades with meadow flowers; marsh pools and spring ponds;
-  faceted grey rock on steep ground. Soft wrap lighting with cool ambient
-  shadows. Water runs from deep blue to turquoise shallows with seabed shapes,
-  caustics and crisp foam, and reflects the sky with fresnel and sun glints.
-  Anti-aliased (MSAA 4×) at full screen resolution, no fog.
-- **Trees** (`trees.gdshader`): canopies of overlapping clumps shaded as one
-  soft mass, with leaf-clump detail; they grow where the terrain's vegetation
-  calls for them and recede when it doesn't.
+- **Painting** (`sea.gdshader`): the ground is painted with Mario's
+  Midjourney textures in `assets/textures/` (meadow, forest floor, scrub,
+  alpine, sand, wet sand, mountain rock, cliff, scree, marsh, seabed). The
+  blended terrain fields, height and slope decide which texture shows where;
+  each tile is sampled twice at different turns and blended by noise so the
+  repeat never shows, and the cliff texture is projected down cliff faces.
+  Boundaries are ragged edges, not fades. Light is two flat tones. Water is
+  flat turquoise in measured reference colours, the seabed texture showing
+  through the shallows, with drifting foam ribbons at the coast.
+- **Trees** (`trees.gdshader`): painted sprites from `assets/sprites/` on
+  camera-facing cards (three round trees, conifers on the uplands), placed
+  where the terrain's vegetation calls for them.
 - **Feel** (`scripts/ghost_hex.gd`, `scripts/splash.gd`): a ghost of the piece
   under the pointer (red where it can't go), rise tweens with foam ripples,
   and terrain that repaints softly as it settles.
@@ -86,6 +89,9 @@ godot --path .
 ```sh
 # Logic tests (headless)
 godot --headless --path . -s res://tests/run_tests.gd
+
+# Regenerate game-sized assets from the Midjourney originals: see
+# docs/midjourney_prompts.md for the prompts.
 
 # Web export (needs the 4.3 web export templates installed)
 godot --headless --path . --export-release "Web" build/web/index.html

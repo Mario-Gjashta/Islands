@@ -11,6 +11,20 @@ extends Node3D
 const SEA_SHADER := preload("res://shaders/sea.gdshader")
 const TREE_SHADER := preload("res://shaders/trees.gdshader")
 const BAKE_SHADER := preload("res://shaders/height_bake.gdshader")
+## Painted ground textures, by shader uniform name.
+const GROUND_TEXTURES := {
+	"tex_meadow": preload("res://assets/textures/grass_meadow.png"),
+	"tex_forest": preload("res://assets/textures/grass_forest.png"),
+	"tex_scrub": preload("res://assets/textures/scrub.png"),
+	"tex_alpine": preload("res://assets/textures/alpine.png"),
+	"tex_sand": preload("res://assets/textures/sand.png"),
+	"tex_sand_wet": preload("res://assets/textures/sand_wet.png"),
+	"tex_rock": preload("res://assets/textures/rock_slope.png"),
+	"tex_cliff": preload("res://assets/textures/rock_cliff.png"),
+	"tex_scree": preload("res://assets/textures/scree.png"),
+	"tex_marsh": preload("res://assets/textures/marsh.png"),
+	"tex_seabed": preload("res://assets/textures/seabed.png"),
+}
 ## Height map texels per side; about fourteen per hex across the map, fine
 ## enough for per-pixel lighting detail.
 const BAKE_SIZE := 1024
@@ -200,6 +214,8 @@ func _build_meshes() -> void:
 
 	_scatter_trees()
 	_trees.material_override = _make_material(TREE_SHADER)
+	_trees.material_override.set_shader_parameter("atlas", preload("res://assets/sprites/trees_atlas.png"))
+	_trees.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_trees.extra_cull_margin = MAX_RISE
 
 
@@ -215,6 +231,9 @@ func _make_material(shader: Shader) -> ShaderMaterial:
 	shader_material.set_shader_parameter("bake_extent", _bake_extent)
 	if shader != BAKE_SHADER:
 		shader_material.set_shader_parameter("height_map", _bake_viewport.get_texture())
+	if shader == SEA_SHADER:
+		for name: String in GROUND_TEXTURES:
+			shader_material.set_shader_parameter(name, GROUND_TEXTURES[name])
 	return shader_material
 
 
@@ -264,53 +283,17 @@ func _could_grow_trees(cell: Vector2i) -> bool:
 	return false
 
 
-## A tree: a short trunk under a canopy of overlapping clumps. Canopy
-## normals point out from the canopy's centre rather than each clump's, so it
-## shades as one soft, round mass the way painters treat foliage.
-## Vertex colour: R = foliage (1) or trunk (0), G = height within the canopy.
+## A unit card for a tree sprite: 1 wide, 1 tall, pivot at the bottom
+## centre. The tree shader turns it to face the camera and scales it.
 func _tree_mesh() -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var trunk := CylinderMesh.new()
-	trunk.top_radius = 0.025
-	trunk.bottom_radius = 0.035
-	trunk.height = 0.2
-	trunk.radial_segments = 6
-	trunk.rings = 1
-	_append(st, trunk, Vector3(0.0, 0.1, 0.0), Vector3.ONE, Color(0.0, 0.0, 0.0), Vector3.ZERO, false)
-	var centre := Vector3(0.0, 0.3, 0.0)
-	var clumps := [
-		[Vector3(0.0, 0.32, 0.0), 0.16],
-		[Vector3(0.09, 0.26, 0.04), 0.12],
-		[Vector3(-0.08, 0.25, 0.05), 0.12],
-		[Vector3(0.02, 0.25, -0.09), 0.12],
-		[Vector3(0.0, 0.42, 0.01), 0.11],
+	var corners := [
+		[Vector3(-0.5, 0.0, 0.0), Vector2(0.0, 1.0)], [Vector3(0.5, 0.0, 0.0), Vector2(1.0, 1.0)],
+		[Vector3(0.5, 1.0, 0.0), Vector2(1.0, 0.0)], [Vector3(-0.5, 1.0, 0.0), Vector2(0.0, 0.0)],
 	]
-	for clump in clumps:
-		var sphere := SphereMesh.new()
-		sphere.radius = clump[1]
-		sphere.height = clump[1] * 1.8
-		sphere.radial_segments = 14
-		sphere.rings = 7
-		_append(st, sphere, clump[0], Vector3.ONE, Color(1.0, 0.0, 0.0), centre, true)
+	for i in [0, 1, 2, 0, 2, 3]:
+		st.set_uv(corners[i][1])
+		st.set_normal(Vector3(0.0, 0.3, 1.0).normalized())
+		st.add_vertex(corners[i][0])
 	return st.commit()
-
-
-## Adds a primitive mesh to `st` at `offset`. Foliage gets canopy-centred
-## normals and its height in the canopy in vertex colour G.
-func _append(st: SurfaceTool, mesh: PrimitiveMesh, offset: Vector3, scale_by: Vector3,
-		colour: Color, canopy_centre: Vector3, foliage: bool) -> void:
-	var arrays := mesh.get_mesh_arrays()
-	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	for index in indices:
-		var v := verts[index] * scale_by + offset
-		var n := normals[index]
-		var c := colour
-		if foliage:
-			n = ((v - canopy_centre) * Vector3(1.0, 1.4, 1.0)).normalized().lerp(n, 0.25).normalized()
-			c.g = clampf((v.y - 0.14) / 0.4, 0.0, 1.0)
-		st.set_color(c)
-		st.set_normal(n)
-		st.add_vertex(v)

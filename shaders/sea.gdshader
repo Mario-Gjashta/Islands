@@ -6,6 +6,21 @@ render_mode specular_disabled, cull_back;
 // False for the flat far-ocean plane, which never needs relief.
 uniform bool displace = true;
 
+// Painted textures (sRGB; everything is converted to linear at the end).
+uniform sampler2D tex_meadow : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_forest : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_scrub : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_alpine : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_sand : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_sand_wet : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_rock : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_cliff : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_scree : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_marsh : filter_linear_mipmap, repeat_enable;
+uniform sampler2D tex_seabed : filter_linear_mipmap, repeat_enable;
+// Texture repeats per world unit (one hex is about 1.7 units across).
+uniform float texture_scale = 0.11;
+
 // Palette in sRGB, measured from the reference paintings; converted at the end.
 uniform vec3 deep_color = vec3(0.21, 0.58, 0.69);
 uniform vec3 reef_color = vec3(0.19, 0.65, 0.70);
@@ -32,6 +47,15 @@ uniform vec3 summit_color = vec3(0.72, 0.69, 0.62);
 varying vec2 paint_pos;
 varying vec3 world_pos;
 
+// Samples a tileable texture twice, the second copy turned and offset, and
+// blends them by broad noise so the repeat never shows.
+vec3 tex2(sampler2D t, vec2 uv, float blend) {
+	vec3 a = texture(t, uv).rgb;
+	vec2 uv2 = mat2(vec2(0.8, -0.6), vec2(0.6, 0.8)) * uv * 0.73 + vec2(0.37, 0.11);
+	vec3 b = texture(t, uv2).rgb;
+	return mix(a, b, blend);
+}
+
 // Water, painted like the references: flat turquoise broken into slowly
 // drifting lighter and darker patches, pale foam swirls that stream around
 // the coast, and a few white dashes of light. Everything moves slowly, so it
@@ -51,11 +75,10 @@ vec3 paint_water(vec2 p, float h, float depth, vec3 fields) {
 	// Open water stays flat; only a faint, very broad drift keeps it alive.
 	water *= 0.97 + 0.06 * fbm(q * 0.003 + vec2(0.0, t * 0.006));
 
-	// Seabed shapes seen through the shallows, wobbling with the surface.
-	vec2 refracted = p + flow * 12.0;
-	float bed = fbm(refracted * 0.01 + vec2(3.7, 1.1));
-	float bed_shadow = smoothstep(0.55, 0.62, bed) * smoothstep(0.4, 0.7, d) * (1.0 - smoothstep(0.92, 0.99, d));
-	water = mix(water, seabed_shadow_color, bed_shadow * 0.5);
+	// The painted seabed shows through the shallows, wobbling with the surface.
+	vec2 refracted = (p + flow * 12.0) / PAINT_HEX * hex_size * texture_scale;
+	vec3 seabed = tex2(tex_seabed, refracted, smoothstep(0.35, 0.65, fbm(p * 0.012)));
+	water = mix(water, seabed, smoothstep(0.62, 0.9, d) * 0.85);
 	float lagoon = smoothstep(0.3, 0.8, fields.y);
 	water = mix(water, lagoon_color, lagoon * 0.4);
 	float grass_beds = smoothstep(0.45, 0.6, fbm(refracted * 0.03));
@@ -82,70 +105,56 @@ vec3 paint_water(vec2 p, float h, float depth, vec3 fields) {
 	return water;
 }
 
-// Land from the blended terrain fields (vegetation, wetness, rock) and the
-// slope, painted in broad smooth areas: pale sand, sage greens, marsh and
-// spring pools, and bluish-grey rock on steep ground.
-vec3 paint_land(vec2 p, float lift, vec3 fields, inout vec3 normal, float y, out float rock_amount) {
+// Land, painted with the textures. The blended terrain fields (vegetation,
+// wetness, rock), the height above the sea and the slope decide which
+// texture shows where; every boundary is a ragged edge, not a fade.
+vec3 paint_land(vec2 p, vec2 xz, float lift, vec3 fields, inout vec3 normal, float y, out float rock_amount) {
 	float veg = fields.x;
 	float wet = fields.y;
 	float rockiness = fields.z;
 	float flatness = normal.y;
 	float broad = fbm(p * 0.015);
 	float wobble = (broad - 0.5) * 0.15;
+	vec2 uv = xz * texture_scale;
+	float blend = smoothstep(0.35, 0.65, fbm(p * 0.012));
 
-	vec3 sand = mix(wet_sand_color, sand_color, smoothstep(0.0, 0.07, lift));
-	sand *= 0.97 + 0.06 * broad;
+	vec3 sand = mix(tex2(tex_sand_wet, uv, blend), tex2(tex_sand, uv, blend), smoothstep(0.0, 0.07, lift));
 	vec3 land = sand;
 
-	// Greens: dry scrub, meadow, deep forest floor. A flat field with only a
-	// faint broad drift and a fine, low-contrast stipple of blades.
-	vec3 grass = mix(scrub_color, grass_light_color, smoothstep(0.22, 0.38, veg + wobble));
-	grass = mix(grass, grass_dark_color, smoothstep(0.45, 0.9, veg + wobble));
-	grass *= 0.96 + 0.08 * fbm(p * 0.01 + 4.2);
-	grass *= 0.97 + 0.05 * hash(floor(p * 0.9));
-	// The field ends in a crisp, ragged edge, with loose tufts spilling a
-	// little past it onto the sand and a darker rim just inside.
+	// Greens: scrub, meadow, forest floor by how much grows here.
+	vec3 grass = mix(tex2(tex_scrub, uv, blend), tex2(tex_meadow, uv, blend), smoothstep(0.2, 0.36, veg + wobble));
+	grass = mix(grass, tex2(tex_forest, uv, blend), smoothstep(0.45, 0.8, veg + wobble));
+	// The field ends in a crisp, ragged edge with a darker rim just inside.
 	float edge = (fbm(p * 0.05 + 2.0) - 0.5) * 0.4;
 	float cover = veg + edge;
 	float grown = smoothstep(0.17, 0.2, cover) * smoothstep(0.03, 0.08, lift);
-	vec3 tuft = voronoi(p * 0.22 + 9.0);
-	float tufts = (1.0 - smoothstep(0.18, 0.3, tuft.x)) * step(0.45, tuft.z)
-		* smoothstep(0.08, 0.17, cover) * (1.0 - grown) * smoothstep(0.03, 0.08, lift);
 	float rim = smoothstep(0.2, 0.23, cover) * (1.0 - smoothstep(0.23, 0.29, cover));
-	land = mix(land, grass * (1.0 - 0.18 * rim), max(grown, tufts));
+	land = mix(land, grass * (1.0 - 0.15 * rim), grown);
 
-	// Wet ground: marsh at sea level, a freshwater pool at a spring.
-	float pools = smoothstep(0.55, 0.6, fbm(p * 0.05 + 7.3));
-	vec3 marsh = mix(marsh_color, pool_color, pools);
-	land = mix(land, marsh, smoothstep(0.3, 0.7, wet) * (1.0 - smoothstep(0.6, 1.0, lift)));
-	float pond = smoothstep(0.7, 0.95, wet) * smoothstep(0.6, 1.0, lift)
-		* smoothstep(0.35, 0.5, fbm(p * 0.04 + 1.7) + (wet - 0.8));
-	land = mix(land, pool_color, pond);
+	// Marsh where the ground is wet at sea level.
+	land = mix(land, tex2(tex_marsh, uv, blend), smoothstep(0.3, 0.7, wet) * (1.0 - smoothstep(0.6, 1.0, lift)));
 
-	// Height progression, each band a flat zone with a ragged edge:
-	// upland turns to alpine meadow with scree, the peak to bare rock, and
-	// the summit pales.
+	// Height progression: alpine meadow with scree on the uplands, bare rock
+	// on the peak.
 	float band_edge = (fbm(p * 0.04 + 5.0) - 0.5) * 0.5;
-	vec3 alpine = alpine_color * (0.95 + 0.1 * fbm(p * 0.01 + 8.0));
+	vec3 alpine = tex2(tex_alpine, uv, blend);
 	vec3 scree_blobs = voronoi(p * 0.03 + 3.0);
 	float scree = step(0.55, scree_blobs.z) * (1.0 - smoothstep(0.3, 0.45, scree_blobs.x));
-	alpine = mix(alpine, scree_color, scree);
+	alpine = mix(alpine, tex2(tex_scree, uv, blend), scree);
 	float alpine_mask = smoothstep(1.95, 2.05, lift + band_edge) * smoothstep(0.25, 0.4, rockiness + veg * 0.5);
 	land = mix(land, alpine, alpine_mask * (1.0 - smoothstep(0.3, 0.6, veg)));
 
-	// Rock: matte, in large soft bands down the face; paler towards the summit.
+	// Rock. Mountain rock is seen from above; sea cliffs get the cliff
+	// texture projected down the face (across the slope, by height).
 	vec2 across = normalize(vec2(-normal.z, normal.x) + vec2(1e-4));
-	float along = dot(p, across);
-	float bands = fbm(vec2(along * 0.035, y * 0.7));
-	// Mountain slopes stay grey-brown; only true cliffs (rock terrain facing
-	// the sea) show the pale cream faces.
-	vec3 rock = mix(rock_dark_color, rock_light_color, smoothstep(0.4, 0.8, bands) * mix(0.35, 1.0, smoothstep(0.5, 0.9, rockiness) * (1.0 - smoothstep(2.0, 2.8, lift))));
-	rock = mix(rock, summit_color, smoothstep(3.0, 3.8, lift + band_edge * 0.5));
+	float along = dot(xz, across);
+	vec3 rock = tex2(tex_rock, uv, blend);
+	vec3 cliff = texture(tex_cliff, vec2(along, -y * 0.8) * texture_scale * 2.2).rgb;
 	float steep = 1.0 - smoothstep(0.6, 0.78, flatness + wobble);
-	float rock_mask = max(steep * smoothstep(0.5, 1.2, lift),
-		smoothstep(0.5, 0.9, rockiness) * (1.0 - smoothstep(0.72, 0.88, flatness)));
-	// Above the alpine band, everything is bare rock.
+	float cliff_mask = smoothstep(0.5, 0.9, rockiness) * (1.0 - smoothstep(0.72, 0.88, flatness)) * (1.0 - smoothstep(2.6, 3.0, lift));
+	float rock_mask = max(steep * smoothstep(0.5, 1.2, lift), cliff_mask);
 	rock_mask = max(rock_mask, smoothstep(2.9, 3.0, lift + band_edge));
+	rock = mix(rock, cliff, cliff_mask);
 	// Greenery clinging to ledges lower down.
 	float ledges = smoothstep(0.5, 0.65, flatness) * smoothstep(0.45, 0.6, fbm(p * 0.04 + 2.3))
 		* (1.0 - smoothstep(2.6, 3.0, lift));
@@ -192,7 +201,7 @@ void fragment() {
 			ao = 1.0 - 0.3 * baked_cavity(world_pos.xz, 0.6 * hex_size);
 		}
 		float rock_amount;
-		col = paint_land(p, -depth, fields, n, y, rock_amount);
+		col = paint_land(p, world_pos.xz, -depth, fields, n, y, rock_amount);
 		// Fields and sand shade almost flat, like a painting; only rock keeps
 		// its full relief.
 		n = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.7 * (1.0 - rock_amount)));
