@@ -30,7 +30,7 @@ func _ready() -> void:
 	box.add_child(title)
 
 	var hint := Label.new()
-	hint.text = "Tap / left-click: raise   Right-click: lower\nDrag: pan   Wheel / pinch: zoom   R: new sea   Tab: toggle mode"
+	hint.text = "Tap / left-click: raise   Right-click: lower\nDrag: pan   Wheel / pinch: zoom   Q / E: rotate\nR: new sea   Tab: toggle mode"
 	hint.add_theme_font_size_override("font_size", 13)
 	hint.modulate = Color(1, 1, 1, 0.75)
 	box.add_child(hint)

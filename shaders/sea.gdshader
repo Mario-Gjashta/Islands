@@ -1,36 +1,40 @@
-shader_type canvas_item;
-render_mode unshaded;
+shader_type spatial;
+render_mode specular_disabled, cull_back;
 
 // One texel per hex (axial q, r offset by grid_radius); R = displayed height.
 uniform sampler2D cells : filter_nearest, repeat_disable;
-uniform float hex_size = 48.0;
-uniform int grid_radius = 22;
+// World units from a hex centre to a corner.
+uniform float hex_size = 1.0;
+uniform int grid_radius = 18;
+// False for the flat far-ocean plane, which never needs relief.
+uniform bool displace = true;
 
 // Height layers: 0 seabed, 1 reef, 2 shallows, 3 beach, 4 land, 5 peak.
 uniform float sea_level = 2.5;
+// World units each layer above the sea rises.
+uniform float layer_height = 0.55;
 // Higher = tighter hexes, lower = softer, blobbier islands.
 uniform float blend_falloff = 1.3;
 // How far (in hexes) coastlines wander from the hex grid.
 uniform float coast_warp = 0.3;
 
-uniform vec3 deep_color : source_color = vec3(0.10, 0.20, 0.34);
-uniform vec3 reef_color : source_color = vec3(0.15, 0.40, 0.52);
-uniform vec3 shallow_color : source_color = vec3(0.33, 0.66, 0.68);
-uniform vec3 lagoon_color : source_color = vec3(0.64, 0.86, 0.80);
-uniform vec3 foam_color : source_color = vec3(0.97, 0.97, 0.93);
-uniform vec3 wet_sand_color : source_color = vec3(0.72, 0.64, 0.49);
-uniform vec3 sand_color : source_color = vec3(0.91, 0.84, 0.67);
-uniform vec3 grass_color : source_color = vec3(0.65, 0.70, 0.46);
-uniform vec3 stone_color : source_color = vec3(0.75, 0.71, 0.63);
+// Palette in sRGB; converted once at the end.
+uniform vec3 deep_color = vec3(0.10, 0.20, 0.34);
+uniform vec3 reef_color = vec3(0.15, 0.40, 0.52);
+uniform vec3 shallow_color = vec3(0.33, 0.66, 0.68);
+uniform vec3 lagoon_color = vec3(0.64, 0.86, 0.80);
+uniform vec3 foam_color = vec3(0.97, 0.97, 0.93);
+uniform vec3 wet_sand_color = vec3(0.72, 0.64, 0.49);
+uniform vec3 sand_color = vec3(0.88, 0.81, 0.66);
+uniform vec3 grass_color = vec3(0.65, 0.70, 0.46);
+uniform vec3 stone_color = vec3(0.75, 0.71, 0.63);
 
 const float SQRT3 = 1.7320508;
+// The painting works in "paint units": one hex is 48 of them, whatever its
+// world size, so brush and noise scales stay put if the world is rescaled.
+const float PAINT_HEX = 48.0;
 
-varying vec2 world_pos;
-
-void vertex() {
-	// The renderer node sits at the origin, so local space is world space.
-	world_pos = VERTEX;
-}
+varying vec2 paint_pos;
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -57,12 +61,12 @@ float fbm(vec2 p) {
 	return value;
 }
 
-vec2 axial_to_world(vec2 a) {
-	return hex_size * vec2(SQRT3 * a.x + SQRT3 * 0.5 * a.y, 1.5 * a.y);
+vec2 axial_to_paint(vec2 a) {
+	return PAINT_HEX * vec2(SQRT3 * a.x + SQRT3 * 0.5 * a.y, 1.5 * a.y);
 }
 
-vec2 world_to_axial(vec2 p) {
-	return vec2(SQRT3 / 3.0 * p.x - p.y / 3.0, 2.0 / 3.0 * p.y) / hex_size;
+vec2 paint_to_axial(vec2 p) {
+	return vec2(SQRT3 / 3.0 * p.x - p.y / 3.0, 2.0 / 3.0 * p.y) / PAINT_HEX;
 }
 
 vec2 axial_round(vec2 a) {
@@ -89,7 +93,7 @@ float cell_height(vec2 a) {
 // Smooth height field: gaussian-weighted blend of the two rings of hexes
 // around the point, so hex rules underneath become soft contours on top.
 float blended_height(vec2 p) {
-	vec2 centre = axial_round(world_to_axial(p));
+	vec2 centre = axial_round(paint_to_axial(p));
 	float sum = 0.0;
 	float weight_sum = 0.0;
 	for (int dq = -2; dq <= 2; dq++) {
@@ -98,7 +102,7 @@ float blended_height(vec2 p) {
 				continue;
 			}
 			vec2 a = centre + vec2(float(dq), float(dr));
-			vec2 d = (p - axial_to_world(a)) / hex_size;
+			vec2 d = (p - axial_to_paint(a)) / PAINT_HEX;
 			float w = exp(-dot(d, d) * blend_falloff);
 			sum += w * cell_height(a);
 			weight_sum += w;
@@ -109,15 +113,20 @@ float blended_height(vec2 p) {
 
 float terrain(vec2 p) {
 	vec2 warp = vec2(fbm(p * 0.012), fbm(p * 0.012 + vec2(5.2, 1.3))) - 0.5;
-	return blended_height(p + warp * hex_size * coast_warp * 2.0);
+	return blended_height(p + warp * PAINT_HEX * coast_warp * 2.0);
+}
+
+// Water is a flat surface at y = 0; land rises above it.
+float surface_y(float h) {
+	return max(h - sea_level, 0.0) * layer_height;
 }
 
 vec3 paint_water(vec2 p, float h, float depth, float grain) {
+	float t = TIME;
 	float d = clamp(h / sea_level, 0.0, 1.0); // 0 = deep, 1 = at the surface
 	vec3 water = mix(deep_color, reef_color, smoothstep(0.05, 0.45, d));
 	water = mix(water, shallow_color, smoothstep(0.42, 0.78, d));
 	water = mix(water, lagoon_color, smoothstep(0.78, 0.98, d));
-	float t = TIME;
 	water *= 0.92 + 0.14 * grain;
 	// Broad, slow brush washes so open water never reads as flat.
 	water *= 0.9 + 0.2 * fbm(p * 0.004 + vec2(t * 0.01, 0.0));
@@ -148,7 +157,7 @@ vec3 paint_water(vec2 p, float h, float depth, float grain) {
 	return col;
 }
 
-vec3 paint_land(vec2 p, float lift, vec2 grad, float grain) {
+vec3 paint_land(vec2 p, float lift, float grain) {
 	float wobble = (grain - 0.5) * 0.25;
 	// Beach (layer 3) sits 0.5 above the sea, land 1.5, peaks 2.5.
 	vec3 land = mix(wet_sand_color, sand_color, smoothstep(0.0, 0.10, lift));
@@ -164,11 +173,6 @@ vec3 paint_land(vec2 p, float lift, vec2 grad, float grain) {
 
 	land = mix(land, stone_color, smoothstep(1.92, 2.08, lift + wobble));
 
-	// Soft hill shading, lit from the top left.
-	vec3 normal = normalize(vec3(-grad * 0.7, 1.0));
-	float lambert = dot(normal, normalize(vec3(-1.0, -1.0, 1.2)));
-	land *= 1.0 + 0.55 * (lambert - 0.647);
-
 	// Darker, wet-pigment edges where layers meet and at the shoreline.
 	float layer_edge = 1.0 - smoothstep(0.0, 0.05, abs(lift + wobble - 1.0));
 	layer_edge = max(layer_edge, 1.0 - smoothstep(0.0, 0.05, abs(lift + wobble - 2.0)));
@@ -177,19 +181,34 @@ vec3 paint_land(vec2 p, float lift, vec2 grad, float grain) {
 	return land;
 }
 
-void fragment() {
-	vec2 p = world_pos;
-	float h = terrain(p);
-	float e = hex_size * 0.1;
-	vec2 grad = vec2(terrain(p + vec2(e, 0.0)) - h, terrain(p + vec2(0.0, e)) - h) / e * hex_size;
-	float grain = fbm(p * 0.08);
+void vertex() {
+	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float to_paint = PAINT_HEX / hex_size;
+	paint_pos = world.xz * to_paint;
+	if (displace) {
+		float e = 0.12 * hex_size;
+		float y = surface_y(terrain(paint_pos));
+		float yx = surface_y(terrain(paint_pos + vec2(e * to_paint, 0.0)));
+		float yz = surface_y(terrain(paint_pos + vec2(0.0, e * to_paint)));
+		VERTEX.y += y;
+		NORMAL = normalize(vec3(-(yx - y) / e, 1.0, -(yz - y) / e));
+	}
+}
 
+void fragment() {
+	vec2 p = paint_pos;
+	// Colours come from the per-pixel height, so coastlines stay crisp even
+	// where the mesh is coarser than the foam line.
+	float h = terrain(p);
+	float grain = fbm(p * 0.08);
 	float depth = sea_level - h;
 	vec3 col = depth > 0.0
 		? paint_water(p, h, depth, grain)
-		: paint_land(p, -depth, grad, grain);
+		: paint_land(p, -depth, grain);
 
 	// Watercolour paper texture over everything.
 	col *= 0.95 + 0.07 * vnoise(p * 0.6) - 0.03 * vnoise(p * 0.03);
-	COLOR = vec4(col, 1.0);
+	col = clamp(col, 0.0, 1.0);
+	ALBEDO = mix(pow((col + 0.055) / 1.055, vec3(2.4)), col / 12.92, step(col, vec3(0.04045)));
+	ROUGHNESS = 1.0;
 }

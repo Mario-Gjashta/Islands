@@ -1,11 +1,13 @@
-extends Node2D
+extends Node3D
 ## First prototype: tap hexes to raise or lower them and watch them melt into
 ## one soft painted island. Owns input; grid, renderer and effects do the rest.
 
-const HEX_SIZE := 48.0
+const HEX_SIZE := 1.0
 const GRID_RADIUS := 18
 ## Pointer travel (pixels) before a press counts as a pan instead of a tap.
 const DRAG_THRESHOLD := 12.0
+## Screen pixels of horizontal drag per radian of rotation.
+const ROTATE_DRAG_SCALE := 250.0
 
 var grid: HexGrid
 var seed_value := 0
@@ -20,16 +22,16 @@ var _pinch_spread := 0.0
 var _pinch_centre := Vector2.ZERO
 
 @onready var sea: SeaRenderer = $Sea
-@onready var effects: Node2D = $Effects
+@onready var effects: Node3D = $Effects
 @onready var ghost: GhostHex = $GhostHex
-@onready var camera: SeaCamera = $Camera
+@onready var camera: CameraRig = $CameraRig
 @onready var hud: Hud = $HUD
 
 
 func _ready() -> void:
 	randomize()
 	ghost.setup(HEX_SIZE)
-	camera.bounds_radius = HEX_SIZE * GRID_RADIUS * 1.6
+	camera.bounds_radius = HEX_SIZE * Hex.SQRT3 * GRID_RADIUS
 	hud.new_sea_requested.connect(func() -> void: new_sea(randi()))
 	hud.lower_mode_toggled.connect(_set_lower_mode)
 	new_sea(randi())
@@ -52,8 +54,8 @@ func change_cell(cell: Vector2i, delta: int) -> bool:
 		return false
 	sea.animate_cell(cell, grid.get_height(cell))
 	var splash := Splash.new()
-	splash.position = Hex.to_pixel(cell, HEX_SIZE)
 	splash.radius = HEX_SIZE
+	splash.position = _cell_world(cell, 0.03)
 	effects.add_child(splash)
 	ghost.on_placed()
 	return true
@@ -72,7 +74,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_dragging = true
 		var pinching := _touches.size() >= 2
 		if not pinching and (_dragging or event.button_mask & MOUSE_BUTTON_MASK_MIDDLE):
-			camera.pan_by_screen(event.relative)
+			camera.pan_screen(event.position - event.relative, event.position)
 	elif event is InputEventScreenTouch:
 		_handle_touch(event)
 	elif event is InputEventScreenDrag:
@@ -81,14 +83,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			var spread := _touch_spread()
 			var centre := _touch_centre()
 			if _pinch_spread > 0.0:
-				camera.pan_by_screen(centre - _pinch_centre)
+				camera.pan_screen(_pinch_centre, centre)
 				camera.zoom_at(spread / _pinch_spread, centre)
 			_pinch_spread = spread
 			_pinch_centre = centre
 	elif event is InputEventMagnifyGesture:
 		camera.zoom_at(event.factor, event.position)
 	elif event is InputEventPanGesture:
-		camera.pan_by_screen(-event.delta * 10.0)
+		camera.pan_screen(event.position, event.position - event.delta * 10.0)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_R:
@@ -150,15 +152,29 @@ func _set_lower_mode(lowering: bool) -> void:
 	ghost.set_lowering(lowering)
 
 
+## The hex under a screen point. Casts against the sea first, then against
+## the height of the cell it found, so raised land picks correctly at an angle.
 func _cell_at_screen(screen_position: Vector2) -> Vector2i:
-	var world := get_canvas_transform().affine_inverse() * screen_position
-	return Hex.from_pixel(world, HEX_SIZE)
+	var cell := Vector2i(1 << 20, 0)
+	var y := 0.0
+	for i in 2:
+		var hit: Variant = camera.ground_point(screen_position, y)
+		if hit == null:
+			return cell
+		cell = Hex.from_pixel(Vector2(hit.x, hit.z), HEX_SIZE)
+		y = sea.surface_y(cell)
+	return cell
+
+
+func _cell_world(cell: Vector2i, lift := 0.0) -> Vector3:
+	var p := Hex.to_pixel(cell, HEX_SIZE)
+	return Vector3(p.x, sea.surface_y(cell) + lift, p.y)
 
 
 func _update_hover() -> void:
 	var cell := _cell_at_screen(get_viewport().get_mouse_position())
 	var inside := grid.contains(cell) and not _dragging
-	ghost.hover(Hex.to_pixel(cell, HEX_SIZE), inside)
+	ghost.hover(_cell_world(cell, 0.03), inside)
 	if grid.contains(cell):
 		var height := grid.get_height(cell)
 		hud.set_info("%s  (layer %d)   q %d, r %d" % [HexGrid.layer_name(height), height, cell.x, cell.y])

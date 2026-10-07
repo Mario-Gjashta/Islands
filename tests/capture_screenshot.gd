@@ -24,8 +24,9 @@ func _initialize() -> void:
 		var target: int = ISLAND[cell]
 		while main.grid.get_height(cell) != target:
 			main.change_cell(cell, signi(target - main.grid.get_height(cell)))
-	main.camera.position = Vector2(80, -20)
-	main.camera.zoom = Vector2.ONE * 0.9
+	main.camera.position = Vector3(1.5, 0.0, 0.0)
+	main.camera.distance = 20.0
+	main.camera.zoom_at(1.0, Vector2.ZERO)
 	await create_timer(1.6).timeout
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(out_path)

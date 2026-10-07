@@ -37,6 +37,7 @@ godot --path .
 | Tap / left-click | Raise the hex one layer (or lower it in Lower mode) |
 | Right-click | Lower the hex one layer |
 | Drag, middle-drag, WASD / arrows | Pan |
+| Q / E | Rotate the view |
 | Wheel / pinch (trackpad or two fingers) | Zoom at the pointer |
 | Tab | Toggle Raise / Lower mode |
 | R | New sea (new seed) |
@@ -47,11 +48,14 @@ godot --path .
   coordinates and a hex-shaped map that stores one integer layer per cell
   (0 seabed, 1 reef, 2 shallows, 3 beach, 4 land, 5 peak).
 - **Rendering without hexes** (`scripts/sea_renderer.gd`, `shaders/sea.gdshader`):
-  displayed heights live in a tiny float texture, one texel per hex. The shader
-  blends the two rings of hexes around each pixel with gaussian weights and a
-  noise warp, so hexes melt into soft contours. It then paints by height: water
+  a 3D scene seen from an angled camera (`scripts/camera_rig.gd`, about 50°).
+  Displayed heights live in a tiny float texture, one texel per hex. The shader
+  blends the two rings of hexes around each point with gaussian weights and a
+  noise warp, so hexes melt into soft contours, then lifts the land out of a flat
+  sea on a finely subdivided plane (a second flat plane carries the sea out to
+  the horizon). The sun casts real light and shadow. Per pixel it paints by height: water
   colour by depth, caustics, coastal foam and swells, glints, sand, meadow with
-  flowers and stone, plus hill shading, wet edges and paper grain. Sea level sits
+  flowers and stone, plus wet edges and paper grain. Sea level sits
   at 2.5, so beach (3) is the first layer above water.
 - **Feel** (`scripts/ghost_hex.gd`, `scripts/splash.gd`): the ghost hex drops out
   when a tile lands and drifts back in; tiles rise with an overshoot tween and a
