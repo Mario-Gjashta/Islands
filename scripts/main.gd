@@ -6,7 +6,7 @@ const HEX_SIZE := 1.0
 const GRID_RADIUS := 18
 ## Pointer travel (pixels) before a press counts as a pan instead of a tap.
 const DRAG_THRESHOLD := 12.0
-const DEFAULT_HINT := "Tap a marked spot to sail (up to 3), then raise a piece within 2 cells of the boat."
+const DEFAULT_HINT := "Sail by tapping a dot (optional), then raise your piece on a green cell. Numbers are levels."
 
 ## The sample island (Drift): a rock peak stepping down through cliffs and
 ## forest to beaches, a ring island around a lagoon, a sea stack and a spring.
@@ -29,6 +29,7 @@ var _press_position := Vector2.ZERO
 ## Touch screens can't hover, so the first tap previews a placement and a
 ## second tap on the same spot confirms it.
 var _pending_anchor := Vector2i(1 << 20, 0)
+var _default_hint := DEFAULT_HINT
 ## Active touch points by finger index, for two-finger pinch zoom.
 var _touches := {}
 var _pinch_spread := 0.0
@@ -115,6 +116,8 @@ func _show_menu() -> void:
 	boat.visible = false
 	reach.show_sail([])
 	reach.show_place([])
+	reach.show_valid([])
+	reach.show_levels({})
 	ghost.hide_ghost()
 	hud.show_menu()
 
@@ -229,6 +232,8 @@ func _sail(target: Vector2i) -> void:
 	for cell in path:
 		points.append(_cell_world(cell))
 	reach.show_sail([])
+	reach.show_valid([])
+	reach.show_levels({})
 	boat.sail(points)
 	await boat.arrived
 	_refresh()
@@ -252,6 +257,7 @@ func _rotate_selected() -> void:
 func _set_lower_mode(lowering: bool) -> void:
 	lower_mode = lowering and game != null and game.mode == GameState.Mode.DRIFT
 	hud.set_lower_mode(lower_mode)
+	_refresh()
 
 
 func _selected_piece() -> Piece:
@@ -270,16 +276,27 @@ func _refresh() -> void:
 	if game.mode == GameState.Mode.VOYAGE:
 		status += " · %d pieces left" % game.pieces_left()
 	hud.set_status(status)
-	hud.set_hint(DEFAULT_HINT if not game.sailed_this_turn else "Now raise a piece within 2 cells of the boat.")
+	_default_hint = DEFAULT_HINT if not game.sailed_this_turn \
+		else "Now raise a piece: tap a green cell."
+	hud.set_hint(_default_hint)
 	var sail_points: Array[Vector3] = []
 	for cell: Vector2i in game.sail_targets():
 		sail_points.append(_cell_world(cell, 0.04))
 	reach.show_sail(sail_points)
 	var place_points: Array[Vector3] = []
+	var levels := {}
 	for cell in grid.cells():
 		if Hex.distance(cell, game.boat) <= GameState.PLACE_RANGE:
+			levels[_cell_world(cell)] = grid.get_height(cell)
 			place_points.append(_cell_world(cell, 0.03))
 	reach.show_place(place_points)
+	reach.show_levels(levels)
+	var valid_points: Array[Vector3] = []
+	var piece := _selected_piece()
+	if piece != null and not lower_mode:
+		for anchor in game.valid_anchors(piece):
+			valid_points.append(_cell_world(anchor, 0.035))
+	reach.show_valid(valid_points)
 
 
 func _update_hover() -> void:
@@ -296,6 +313,7 @@ func _update_hover() -> void:
 	var anchor := _pending_anchor if _is_touch() else cell
 	if lower_mode:
 		ghost.show_cells([_cell_world(anchor, 0.05)], game.can_lower(anchor), true)
+		hud.set_hint("Tap a cell within 2 of the boat to lower it one level (free).")
 		return
 	var piece := _selected_piece()
 	if piece == null:
@@ -304,7 +322,16 @@ func _update_hover() -> void:
 	var positions: Array[Vector3] = []
 	for c in piece.cells_at(anchor):
 		positions.append(_cell_world(c, 0.05))
-	ghost.show_cells(positions, game.placement_error(piece, anchor) == "")
+	var error := game.placement_error(piece, anchor)
+	ghost.show_cells(positions, error == "")
+	# Explain the spot under the pointer: what it would become, or why not.
+	if Hex.distance(anchor, game.boat) > GameState.PLACE_RANGE + 1:
+		hud.set_hint(_default_hint)
+	elif error == "":
+		var h := grid.get_height(anchor)
+		hud.set_hint("Raise here: %s → %s." % [HexGrid.level_name(h), HexGrid.level_name(h + 1)])
+	else:
+		hud.set_hint(error + ".")
 
 
 func _update_wind_arrow() -> void:

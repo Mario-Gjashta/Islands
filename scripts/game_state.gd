@@ -106,12 +106,28 @@ func placement_error(piece: Piece, anchor: Vector2i) -> String:
 		var raised := grid.get_height(cell) + 1
 		if raised > HexGrid.MAX_HEIGHT:
 			return "Already at the highest level"
-		if raised > grid.max_neighbor_height(cell) + piece.max_step():
-			return "Land must grow from its neighbours" if piece.kind != Piece.Kind.ROCK \
-				else "Rock can rise at most two above its neighbours"
+		# The slope rule only binds land: below the waterline you can pile up
+		# reefs and sandbanks freely.
+		if raised >= HexGrid.Level.SEA_LEVEL and raised > grid.max_neighbor_height(cell) + piece.max_step():
+			if piece.kind == Piece.Kind.ROCK:
+				return "Rock can stand at most two levels above its highest neighbour"
+			return "Land can only rise one level above its highest neighbour (here %d); build next to it first" \
+				% grid.max_neighbor_height(cell)
 		if cell == boat and raised > HexGrid.WATER_MAX:
 			return "That would run the boat aground"
 	return ""
+
+
+## Every anchor where `piece` can be raised this turn.
+func valid_anchors(piece: Piece) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	var reach := PLACE_RANGE + 3
+	for dq in range(-reach, reach + 1):
+		for dr in range(maxi(-reach, -dq - reach), mini(reach, -dq + reach) + 1):
+			var anchor := boat + Vector2i(dq, dr)
+			if placement_error(piece, anchor) == "":
+				result.append(anchor)
+	return result
 
 
 ## Raises the hand piece at `hand_index` and ends the turn. Returns the cells

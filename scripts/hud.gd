@@ -21,6 +21,8 @@ var _lower_button: Button
 var _hand_bar: HBoxContainer
 var _cards: Array[PieceCard] = []
 var _card_group := ButtonGroup.new()
+var _rules: Control
+var _rules_seen := false
 var _menu: Control
 var _end_screen: Control
 var _end_text: Label
@@ -30,6 +32,7 @@ func _ready() -> void:
 	_build_status_panel()
 	_build_hand_bar()
 	_build_menu()
+	_build_rules()
 	_build_end_screen()
 	show_menu()
 
@@ -37,6 +40,7 @@ func _ready() -> void:
 func show_menu() -> void:
 	_menu.visible = true
 	_end_screen.visible = false
+	_rules.visible = false
 	_status_panel.visible = false
 	_hand_bar.get_parent().visible = false
 
@@ -44,6 +48,9 @@ func show_menu() -> void:
 func start_session(mode: GameState.Mode) -> void:
 	_menu.visible = false
 	_end_screen.visible = false
+	# Explain the rules once, on the first session.
+	_rules.visible = not _rules_seen
+	_rules_seen = true
 	_status_panel.visible = true
 	_hand_bar.get_parent().visible = true
 	_sample_button.visible = mode == GameState.Mode.DRIFT
@@ -155,6 +162,7 @@ func _build_status_panel() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.add_child(_button("Menu", menu_requested.emit))
+	row.add_child(_button("How to play", func() -> void: _rules.visible = not _rules.visible))
 	_sample_button = _button("Sample island", sample_island_requested.emit)
 	row.add_child(_sample_button)
 	box.add_child(row)
@@ -211,6 +219,28 @@ func _build_menu() -> void:
 	drift.custom_minimum_size = Vector2(0, 52)
 	box.add_child(drift)
 	box.add_child(_label("Endless pieces and free lowering. Just build.", 13, 0.7))
+
+
+func _build_rules() -> void:
+	_rules = _centered_panel()
+	_rules.visible = false
+	var box: VBoxContainer = _rules.get_meta("box")
+	box.add_child(_label("How to play", 26))
+	var text := _label("""Each turn:
+1. Sail (optional): tap a white dot. The boat moves up to 3 cells, over water only.
+2. Raise: pick a piece below and tap a green cell. Every hex of the piece rises one level. You can only build within 2 cells of the boat.
+
+Levels: 0 deep sea · 1 reef · 2 sandbank · 3 beach · 4 lowland · 5 upland · 6 peak. The numbers on the map show them.
+
+The slope rule: land (level 3 and up) can only rise one level above its highest neighbour, so islands grow outward from the shallows. Underwater you can pile up freely. Rock pieces may stand two levels above: that's how cliffs form.
+
+You never choose forest or beach. After each turn the land settles by itself: open coasts become beach, calm ones marsh; lowland near a spring (blue piece) or sheltered from the wind grows forest; windward coasts stay scrub.
+
+Land blocks the boat, so don't wall yourself in.""", 14, 0.92)
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.custom_minimum_size = Vector2(460, 0)
+	box.add_child(text)
+	box.add_child(_button("Got it", func() -> void: _rules.visible = false))
 
 
 func _build_end_screen() -> void:

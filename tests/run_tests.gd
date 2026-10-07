@@ -102,19 +102,26 @@ func _test_slope_rule() -> void:
 	var single := Piece.new()
 	_check(game.placement_error(single, Vector2i(1, 0)) == "", "deep sea can become reef")
 	game.grid.set_height(Vector2i(1, 0), HexGrid.Level.REEF)
+	_check(game.placement_error(single, Vector2i(1, 0)) == "", "underwater, a lone reef can still rise")
+	game.grid.set_height(Vector2i(1, 0), HexGrid.Level.SANDBANK)
 	_check(game.placement_error(single, Vector2i(1, 0)) != "",
-		"a lone reef can't rise above its deep neighbours")
-	game.grid.set_height(Vector2i(2, 0), HexGrid.Level.REEF)
-	_check(game.placement_error(single, Vector2i(1, 0)) == "", "a reef beside a reef can rise")
+		"a lone sandbank can't become land above deep neighbours")
+	game.grid.set_height(Vector2i(2, 0), HexGrid.Level.SANDBANK)
+	_check(game.placement_error(single, Vector2i(1, 0)) == "", "beside another sandbank it can")
+	_check(game.valid_anchors(single).has(Vector2i(1, 0)), "valid anchors list it")
 	_check(game.placement_error(single, Vector2i(3, 0)) != "", "too far from the boat")
 	var line := Piece.new(Piece.Kind.LAND, [Vector2i(0, 0), Vector2i(1, 0)])
-	_check(game.placement_error(line, Vector2i(1, 0)) == "", "a two-piece raises both reefs")
+	_check(game.placement_error(line, Vector2i(1, 0)) == "", "a two-piece raises both sandbanks")
 
 
 func _test_rock_and_boat_rules() -> void:
 	var game := _empty_game()
 	var cell := Vector2i(1, 0)
-	game.grid.set_height(cell, HexGrid.Level.REEF)
+	game.grid.set_height(cell, HexGrid.Level.SEA_LEVEL)
+	for n in Hex.neighbors(cell):
+		if n != Vector2i.ZERO:
+			game.grid.set_height(n, HexGrid.Level.SANDBANK)
+	_check(game.placement_error(Piece.new(), cell) != "", "land can't rise two above its neighbours")
 	var rock := Piece.new(Piece.Kind.ROCK)
 	_check(game.placement_error(rock, cell) == "", "rock may stand two above its neighbours")
 	game.grid.set_height(Vector2i.ZERO, HexGrid.Level.SANDBANK)

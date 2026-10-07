@@ -11,9 +11,14 @@ See [`docs/concept.md`](docs/concept.md) for the full concept.
 The full design is in the concept doc (Google Doc). Built so far:
 
 - **Height levels 0–6** (deep sea, reef, sandbank, sea level, lowland, upland,
-  peak) with **the slope rule**: a raised cell can stand at most one level above
-  its highest neighbour, so islands grow outward from the seabed. Rock pieces
-  may stand two above; that's how cliffs form.
+  peak) with **the slope rule**: land (level 3 and up) can stand at most one
+  level above its highest neighbour, so islands grow outward from the
+  shallows; underwater you can pile up freely. Rock pieces may stand two
+  above; that's how cliffs form.
+- **Readable rules**: cells where the selected piece fits glow green, nearby
+  cells show their level number, the panel explains the spot under the
+  pointer (or why it's blocked), and a How to play card opens on the first
+  session.
 - **Land pieces** of 1–4 hexes plus rock and spring pieces, in a **hand of 3**
   drawn from a bag. Rotate before placing.
 - **The boat**: sail up to 3 cells across water (levels 0–2) each turn, then
