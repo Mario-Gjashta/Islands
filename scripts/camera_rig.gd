@@ -5,7 +5,7 @@ extends Node3D
 
 @export_range(20.0, 85.0) var pitch_degrees := 50.0
 @export var distance := 24.0
-@export var min_distance := 7.0
+@export var min_distance := 11.0
 @export var max_distance := 55.0
 @export var key_pan_speed := 18.0
 @export var key_rotate_speed := 1.8
