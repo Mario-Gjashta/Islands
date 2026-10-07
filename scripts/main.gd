@@ -4,6 +4,14 @@ extends Node3D
 
 const HEX_SIZE := 1.0
 const GRID_RADIUS := 18
+## The sample island: a summit in the middle falling away through every layer
+## (by hex distance), plus a lower wooded island to the east.
+const SAMPLE_MOUNTAIN_PROFILE := [8, 7, 6, 5, 4, 3]
+const SAMPLE_EAST_ISLAND := {
+	Vector2i(6, -3): 5, Vector2i(7, -3): 5, Vector2i(6, -2): 4, Vector2i(7, -4): 4,
+	Vector2i(5, -2): 3, Vector2i(8, -4): 3, Vector2i(8, -3): 4, Vector2i(6, -4): 3,
+	Vector2i(5, -3): 4, Vector2i(7, -2): 3,
+}
 ## Pointer travel (pixels) before a press counts as a pan instead of a tap.
 const DRAG_THRESHOLD := 12.0
 ## Screen pixels of horizontal drag per radian of rotation.
@@ -34,6 +42,7 @@ func _ready() -> void:
 	camera.bounds_radius = HEX_SIZE * Hex.SQRT3 * GRID_RADIUS
 	hud.new_sea_requested.connect(func() -> void: new_sea(randi()))
 	hud.lower_mode_toggled.connect(_set_lower_mode)
+	hud.sample_island_requested.connect(build_sample_island)
 	new_sea(randi())
 
 
@@ -43,6 +52,21 @@ func new_sea(new_seed: int) -> void:
 	grid.generate(seed_value)
 	sea.setup(grid, HEX_SIZE)
 	hud.set_seed(seed_value)
+
+
+## Raises a ready-made mountain island in the middle of the sea, to show off
+## every layer at once.
+func build_sample_island() -> void:
+	var island := SAMPLE_EAST_ISLAND.duplicate()
+	for cell in grid.cells():
+		var d := Hex.distance(cell, Vector2i.ZERO)
+		var wobble := 1 if (cell.x * 7 + cell.y * 13) % 5 == 0 else 0
+		if d + wobble < SAMPLE_MOUNTAIN_PROFILE.size():
+			island[cell] = SAMPLE_MOUNTAIN_PROFILE[d + wobble]
+	island[Vector2i(1, -1)] = HexGrid.MAX_HEIGHT
+	for cell: Vector2i in island:
+		if grid.set_height(cell, island[cell]):
+			sea.animate_cell(cell, grid.get_height(cell))
 
 
 ## Raises (delta > 0) or lowers a cell one layer. Returns true if it changed.

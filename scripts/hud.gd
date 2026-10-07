@@ -3,6 +3,7 @@ extends CanvasLayer
 ## Prototype overlay: controls hint, hovered-cell readout, mode and new-sea buttons.
 
 signal new_sea_requested
+signal sample_island_requested
 signal lower_mode_toggled(lowering: bool)
 
 var _info: Label
@@ -58,6 +59,12 @@ func _ready() -> void:
 	new_sea.pressed.connect(new_sea_requested.emit)
 	row.add_child(new_sea)
 
+	var sample := Button.new()
+	sample.text = "Sample island"
+	sample.custom_minimum_size = Vector2(120, 40)
+	sample.pressed.connect(sample_island_requested.emit)
+	row.add_child(sample)
+
 	_seed = Label.new()
 	_seed.add_theme_font_size_override("font_size", 12)
 	_seed.modulate = Color(1, 1, 1, 0.5)
@@ -69,7 +76,13 @@ func set_info(text: String) -> void:
 
 
 func set_seed(seed_value: int) -> void:
-	_seed.text = "Seed %d" % seed_value
+	_seed.text = "Seed %d · build %s" % [seed_value, _build_id()]
+
+
+## The release stamp the deploy workflow writes, or "dev" for local runs.
+func _build_id() -> String:
+	var file := FileAccess.open("res://build_info.txt", FileAccess.READ)
+	return file.get_as_text().strip_edges() if file else "dev"
 
 
 ## Updates the toggle without re-emitting, for keyboard shortcuts.

@@ -22,7 +22,9 @@ Every push to `main` (or the prototype branch) is exported to the web and deploy
 to GitHub Pages by `.github/workflows/pages.yml`. It's at
 **https://mario-gjashta.github.io/Islands/** once Pages is enabled
 (Settings → Pages → Source: **GitHub Actions**). It works on phones too: tap to
-raise, drag to pan, pinch to zoom.
+raise, drag to pan, pinch to zoom. The panel's corner shows the build (commit)
+you're running. Each release gets unique file names (`tools/stamp_web_build.sh`),
+so a refresh never mixes a new page with old cached game files.
 
 ## Running locally
 
@@ -41,6 +43,7 @@ godot --path .
 | Wheel / pinch (trackpad or two fingers) | Zoom at the pointer |
 | Tab | Toggle Raise / Lower mode |
 | R | New sea (new seed) |
+| Sample island button | Raise a ready-made mountain island to see every layer |
 
 ## How it works
 

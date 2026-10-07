@@ -44,9 +44,12 @@ jobs:
 
       - name: Export web build
         run: |
+          version="${GITHUB_SHA::7}"
+          echo "$version" > build_info.txt
           mkdir -p build/web
           godot --headless --path . --export-release "Web" build/web/index.html
           test -f build/web/index.wasm
+          tools/stamp_web_build.sh build/web "$version"
 
       - uses: actions/upload-pages-artifact@v3
         with:
