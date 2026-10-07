@@ -6,8 +6,8 @@ render_mode specular_disabled, cull_back;
 // recede on their own as land rises and sinks.
 #include "res://shaders/terrain.gdshaderinc"
 
-uniform vec3 leaf_light_color = vec3(0.46, 0.64, 0.27);
-uniform vec3 leaf_dark_color = vec3(0.15, 0.33, 0.16);
+uniform vec3 leaf_light_color = vec3(0.46, 0.63, 0.36);
+uniform vec3 leaf_dark_color = vec3(0.26, 0.42, 0.30);
 uniform vec3 trunk_color = vec3(0.40, 0.30, 0.22);
 
 varying float tint;
@@ -39,8 +39,8 @@ void fragment() {
 	// with darker gaps.
 	vec3 clumps = voronoi(local_pos.xz * 18.0 + local_pos.y * 9.0 + tint * 13.0);
 	vec3 leaf = mix(leaf_dark_color, leaf_light_color, 0.25 + 0.6 * canopy_height + 0.2 * (tint - 0.5));
-	leaf *= 0.85 + 0.25 * clumps.z;
-	leaf *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.12, clumps.y));
+	leaf *= 0.93 + 0.1 * clumps.z;
+	leaf *= 1.0 - 0.12 * (1.0 - smoothstep(0.0, 0.12, clumps.y));
 	vec3 col = mix(trunk_color, leaf, foliage);
 	ALBEDO = srgb_to_linear(col);
 	// Underside of the canopy sits in its own shade.
