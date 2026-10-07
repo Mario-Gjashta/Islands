@@ -45,12 +45,8 @@ vec3 paint_water(vec2 p, float h, float depth, vec3 fields) {
 	water = mix(water, shallow_color, smoothstep(0.6, 0.92, d));
 	water = mix(water, lagoon_color, smoothstep(0.92, 1.0, d) * 0.5);
 
-	// Drifting patches: a few broad, flat darker and lighter shapes on open
-	// water, like wide brush strokes.
-	float patch = fbm(q * 0.005 + vec2(0.0, t * 0.008));
-	float open_water = 1.0 - smoothstep(0.5, 0.85, d);
-	water = mix(water, stroke_color, smoothstep(0.56, 0.62, patch) * 0.4 * open_water);
-	water = mix(water, lagoon_color, (1.0 - smoothstep(0.36, 0.42, patch)) * 0.18 * open_water);
+	// Open water stays flat; only a faint, very broad drift keeps it alive.
+	water *= 0.97 + 0.06 * fbm(q * 0.003 + vec2(0.0, t * 0.006));
 
 	// Seabed shapes seen through the shallows, wobbling with the surface.
 	vec2 refracted = p + flow * 12.0;
@@ -86,7 +82,7 @@ vec3 paint_water(vec2 p, float h, float depth, vec3 fields) {
 // Land from the blended terrain fields (vegetation, wetness, rock) and the
 // slope, painted in broad smooth areas: pale sand, sage greens, marsh and
 // spring pools, and bluish-grey rock on steep ground.
-vec3 paint_land(vec2 p, float lift, vec3 fields, inout vec3 normal, float y) {
+vec3 paint_land(vec2 p, float lift, vec3 fields, inout vec3 normal, float y, out float rock_amount) {
 	float veg = fields.x;
 	float wet = fields.y;
 	float rockiness = fields.z;
@@ -98,12 +94,22 @@ vec3 paint_land(vec2 p, float lift, vec3 fields, inout vec3 normal, float y) {
 	sand *= 0.97 + 0.06 * broad;
 	vec3 land = sand;
 
-	// Greens: dry scrub, meadow, deep forest floor, varied only in soft patches.
+	// Greens: dry scrub, meadow, deep forest floor. A flat field with only a
+	// faint broad drift and a fine, low-contrast stipple of blades.
 	vec3 grass = mix(scrub_color, grass_light_color, smoothstep(0.22, 0.38, veg + wobble));
 	grass = mix(grass, grass_dark_color, smoothstep(0.45, 0.9, veg + wobble));
-	grass *= 0.9 + 0.2 * fbm(p * 0.03 + 4.2);
-	float grown = smoothstep(0.1, 0.22, veg + wobble) * smoothstep(0.03, 0.14, lift);
-	land = mix(land, grass, grown);
+	grass *= 0.96 + 0.08 * fbm(p * 0.01 + 4.2);
+	grass *= 0.97 + 0.05 * hash(floor(p * 0.9));
+	// The field ends in a crisp, ragged edge, with loose tufts spilling a
+	// little past it onto the sand and a darker rim just inside.
+	float edge = (fbm(p * 0.05 + 2.0) - 0.5) * 0.4;
+	float cover = veg + edge;
+	float grown = smoothstep(0.17, 0.2, cover) * smoothstep(0.03, 0.08, lift);
+	vec3 tuft = voronoi(p * 0.22 + 9.0);
+	float tufts = (1.0 - smoothstep(0.18, 0.3, tuft.x)) * step(0.45, tuft.z)
+		* smoothstep(0.08, 0.17, cover) * (1.0 - grown) * smoothstep(0.03, 0.08, lift);
+	float rim = smoothstep(0.2, 0.23, cover) * (1.0 - smoothstep(0.23, 0.29, cover));
+	land = mix(land, grass * (1.0 - 0.18 * rim), max(grown, tufts));
 
 	// Wet ground: marsh at sea level, a freshwater pool at a spring.
 	float pools = smoothstep(0.55, 0.6, fbm(p * 0.05 + 7.3));
@@ -126,6 +132,7 @@ vec3 paint_land(vec2 p, float lift, vec3 fields, inout vec3 normal, float y) {
 	float ledges = smoothstep(0.5, 0.65, flatness) * smoothstep(0.45, 0.6, fbm(p * 0.04 + 2.3));
 	rock_mask *= 1.0 - ledges * 0.8;
 	land = mix(land, rock, rock_mask);
+	rock_amount = rock_mask;
 
 	// Damp, darker sand right at the waterline.
 	land *= 1.0 - 0.05 * (1.0 - smoothstep(0.0, 0.03, lift));
@@ -164,7 +171,12 @@ void fragment() {
 			n = baked_normal(world_pos.xz, 0.1 * hex_size);
 			ao = 1.0 - 0.35 * baked_cavity(world_pos.xz, 0.5 * hex_size);
 		}
-		col = paint_land(p, -depth, fields, n, y);
+		float rock_amount;
+		col = paint_land(p, -depth, fields, n, y, rock_amount);
+		// Fields and sand shade almost flat, like a painting; only rock keeps
+		// its full relief.
+		n = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.7 * (1.0 - rock_amount)));
+		ao = mix(1.0, ao, 0.3 + 0.7 * rock_amount);
 	}
 	ALBEDO = srgb_to_linear(col) * mix(1.0, ao, 0.35);
 	AO = ao;
