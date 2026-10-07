@@ -7,8 +7,9 @@ render_mode unshaded, blend_disabled;
 
 void fragment() {
 	vec2 world = (UV - 0.5) * bake_extent;
-	float v = clamp(terrain(world_to_paint(world)) / HEIGHT_RANGE, 0.0, 1.0);
+	vec3 fields;
+	float v = clamp(terrain_fields(world_to_paint(world), fields) / HEIGHT_RANGE, 0.0, 1.0);
 	float high = floor(v * 255.0) / 255.0;
 	float low = fract(v * 255.0);
-	COLOR = vec4(high, low, 0.0, 1.0);
+	COLOR = vec4(high, low, clamp(fields.x, 0.0, 1.0), 1.0);
 }

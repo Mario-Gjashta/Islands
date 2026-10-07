@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/sea_renderer.gd" id="2_sea"]
@@ -7,6 +7,8 @@
 [ext_resource type="Script" path="res://scripts/hud.gd" id="5_hud"]
 
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="6_sky"]
+[ext_resource type="Script" path="res://scripts/boat.gd" id="7_boat"]
+[ext_resource type="Script" path="res://scripts/reach_overlay.gd" id="8_reach"]
 
 [sub_resource type="ShaderMaterial" id="SkyMaterial_painted"]
 shader = ExtResource("6_sky")
@@ -47,6 +49,12 @@ directional_shadow_max_distance = 80.0
 script = ExtResource("2_sea")
 
 [node name="Effects" type="Node3D" parent="."]
+
+[node name="Reach" type="Node3D" parent="."]
+script = ExtResource("8_reach")
+
+[node name="Boat" type="Node3D" parent="."]
+script = ExtResource("7_boat")
 
 [node name="GhostHex" type="Node3D" parent="."]
 script = ExtResource("3_ghost")

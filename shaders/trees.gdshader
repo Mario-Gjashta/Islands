@@ -19,7 +19,9 @@ void vertex() {
 	float flatness = baked_normal(origin.xz, 0.15 * hex_size).y;
 	float chance = hash(origin.xz * 3.17 + 0.5);
 	// Patchy groves rather than an even carpet.
-	float density = tree_density(h - sea_level, flatness) * (0.6 + 0.8 * fbm(p * 0.008));
+	// Only on land; patchy groves rather than an even carpet.
+	float density = tree_density(baked_vegetation(origin.xz), flatness)
+		* step(sea_level + 0.3, h) * (0.6 + 0.8 * fbm(p * 0.008));
 	float grow = smoothstep(chance, chance + 0.12, density);
 	float size = (0.55 + 0.6 * hash(origin.xz * 7.3)) * grow;
 	VERTEX *= size;

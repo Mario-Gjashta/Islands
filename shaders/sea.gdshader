@@ -20,13 +20,17 @@ uniform vec3 grass_light_color = vec3(0.44, 0.62, 0.27);
 uniform vec3 grass_dark_color = vec3(0.17, 0.38, 0.18);
 uniform vec3 rock_light_color = vec3(0.70, 0.69, 0.66);
 uniform vec3 rock_dark_color = vec3(0.46, 0.47, 0.49);
+uniform vec3 scrub_color = vec3(0.66, 0.63, 0.40);
+uniform vec3 marsh_color = vec3(0.36, 0.42, 0.26);
+uniform vec3 pool_color = vec3(0.27, 0.52, 0.52);
+uniform vec3 seagrass_color = vec3(0.12, 0.40, 0.30);
 
 varying vec2 paint_pos;
 varying vec3 world_normal;
 // Real height of the surface in world units, for patterns that run down cliffs.
 varying float world_y;
 
-vec3 paint_water(vec2 p, float h, float depth, float grain) {
+vec3 paint_water(vec2 p, float h, float depth, vec3 fields, float grain) {
 	float t = TIME;
 	float d = clamp(h / sea_level, 0.0, 1.0); // 0 = deep, 1 = at the surface
 	vec3 water = mix(deep_color, reef_color, smoothstep(0.1, 0.5, d));
@@ -42,6 +46,11 @@ vec3 paint_water(vec2 p, float h, float depth, float grain) {
 	float bed = fbm(p * 0.012 + vec2(3.7, 1.1));
 	float shadows = smoothstep(0.56, 0.62, bed) * smoothstep(0.3, 0.6, d) * (1.0 - smoothstep(0.9, 0.98, d));
 	water = mix(water, seabed_shadow_color, shadows * 0.55);
+	// Lagoons: calm, bright water over swaying seagrass meadows.
+	float lagoon = smoothstep(0.3, 0.8, fields.y);
+	water = mix(water, lagoon_color * 1.04, lagoon * 0.45);
+	float grass_beds = smoothstep(0.45, 0.6, fbm(p * 0.03 + vec2(sin(t * 0.4) * 0.05, 0.0)));
+	water = mix(water, seagrass_color, grass_beds * lagoon * smoothstep(0.3, 0.7, fields.x) * 0.55);
 	water *= 0.95 + 0.1 * grain;
 
 	// Sunlight rippling over the sandy bottom of the shallows.
@@ -70,24 +79,46 @@ vec3 paint_water(vec2 p, float h, float depth, float grain) {
 	return col;
 }
 
-// Land: white sand, then lush greens on anything flat enough to hold soil,
-// and bare granite on steep faces, streaked and cracked top to bottom.
-vec3 paint_land(vec2 p, float lift, vec3 normal, float y, float grain) {
+// Land, painted from the blended terrain fields (vegetation, wetness, rock):
+// white sand where nothing grows, dry scrub, meadow and deep forest floor as
+// vegetation rises, marsh and spring pools where it's wet, and grey granite
+// on rock and on any face too steep to hold soil.
+vec3 paint_land(vec2 p, float lift, vec3 fields, vec3 normal, float y, float grain) {
+	float veg = fields.x;
+	float wet = fields.y;
+	float rockiness = fields.z;
 	float flatness = normal.y;
-	float wobble = (grain - 0.5) * 0.25;
+	float wobble = (grain - 0.5) * 0.12;
 
 	vec3 land = mix(wet_sand_color, sand_color, smoothstep(0.0, 0.08, lift));
 	// Sand ripples.
 	land *= 0.96 + 0.06 * vnoise(vec2(p.x * 0.3, p.y * 0.08));
 
-	// Greens: lighter in open meadow and on sunny tops, deeper in the jungle.
-	float lush = fbm(p * 0.03) * 0.7 + smoothstep(1.6, 2.6, lift) * 0.5;
-	vec3 grass = mix(grass_light_color, grass_dark_color, smoothstep(0.35, 0.85, lush));
+	// Vegetation: dry scrub, then meadow, then dark forest floor.
+	vec3 grass = mix(scrub_color, grass_light_color, smoothstep(0.22, 0.38, veg + wobble));
+	grass = mix(grass, grass_dark_color, smoothstep(0.45, 0.9, veg + wobble));
 	grass *= 0.9 + 0.2 * vnoise(p * 0.25);
-	land = mix(land, grass, smoothstep(0.9, 1.05, lift + wobble));
+	// Flowers dotting open meadow.
+	vec2 dot_cell = floor(p / 7.0);
+	vec2 dot_pos = fract(p / 7.0) - 0.5 - (vec2(hash(dot_cell + 3.1), hash(dot_cell + 7.7)) - 0.5) * 0.6;
+	float meadow = smoothstep(0.3, 0.36, veg) * (1.0 - smoothstep(0.45, 0.6, veg));
+	float flower = step(0.88, hash(dot_cell)) * (1.0 - smoothstep(0.12, 0.2, length(dot_pos)));
+	vec3 petal = mix(vec3(0.98, 0.93, 0.62), vec3(0.95, 0.70, 0.72), hash(dot_cell + 1.3));
+	grass = mix(grass, petal, flower * meadow * 0.85);
+	// Sand shows through at the very edge of the sea.
+	float grown = smoothstep(0.1, 0.22, veg + wobble) * smoothstep(0.02, 0.15, lift);
+	land = mix(land, grass, grown);
 
-	// Granite on steep ground. Streaks run down the face: noise changes fast
-	// across the slope and slowly with height.
+	// Wet ground: marsh at sea level, a freshwater pool at a spring.
+	float pools = smoothstep(0.55, 0.62, fbm(p * 0.05 + 7.3));
+	vec3 marsh = mix(marsh_color * (0.9 + 0.2 * vnoise(p * 0.3)), pool_color, pools);
+	land = mix(land, marsh, smoothstep(0.3, 0.7, wet) * (1.0 - smoothstep(0.6, 1.0, lift)));
+	float pond = smoothstep(0.7, 0.95, wet) * smoothstep(0.6, 1.0, lift)
+		* smoothstep(0.35, 0.55, fbm(p * 0.04 + 1.7) + (wet - 0.8));
+	land = mix(land, pool_color * 1.1, pond);
+
+	// Granite on rock and steep ground. Streaks run down the face: noise
+	// changes fast across the slope and slowly with height.
 	vec2 across = normalize(vec2(-normal.z, normal.x) + vec2(1e-4));
 	float along = dot(p, across);
 	float streak = fbm(vec2(along * 0.05, y * 1.2));
@@ -95,14 +126,12 @@ vec3 paint_land(vec2 p, float lift, vec3 normal, float y, float grain) {
 	rock *= 0.92 + 0.12 * vnoise(vec2(along * 0.25, y * 5.0));
 	float crack = 1.0 - smoothstep(0.0, 0.025, abs(vnoise(vec2(along * 0.035, y * 0.6) + 9.1) - 0.5));
 	rock *= 1.0 - 0.25 * crack;
-	// Rock darkens towards the foot of a cliff.
 	rock *= 0.8 + 0.2 * smoothstep(0.3, 2.0, y);
 	float steep = 1.0 - smoothstep(0.55, 0.75, flatness + (grain - 0.5) * 0.2);
-	float rock_mask = steep * smoothstep(0.8, 1.6, lift);
-	// Moss and creepers clinging to ledges on the cliffs.
+	float rock_mask = max(steep * smoothstep(0.3, 0.9, lift), smoothstep(0.5, 0.9, rockiness) * (1.0 - smoothstep(0.75, 0.9, flatness)));
+	// Moss and creepers on ledges; soil and greenery on flat rock tops.
 	float moss = smoothstep(0.55, 0.7, fbm(p * 0.06 + 2.3)) * smoothstep(0.35, 0.55, flatness);
-	// Tower tops: soil and greenery wherever the rock rounds over.
-	moss = max(moss, smoothstep(0.45, 0.62, flatness) * smoothstep(3.0, 4.0, lift));
+	moss = max(moss, smoothstep(0.45, 0.62, flatness) * smoothstep(1.5, 2.5, lift));
 	rock = mix(rock, grass_dark_color * 1.1, moss * 0.85);
 	land = mix(land, rock, rock_mask);
 
@@ -128,12 +157,13 @@ void fragment() {
 	vec2 p = paint_pos;
 	// Colours come from the per-pixel height, so coastlines stay crisp even
 	// where the mesh is coarser than the foam line.
-	float h = terrain(p);
+	vec3 fields;
+	float h = terrain_fields(p, fields);
 	float grain = fbm(p * 0.08);
 	float depth = sea_level - h;
 	vec3 col = depth > 0.0
-		? paint_water(p, h, depth, grain)
-		: paint_land(p, -depth, normalize(world_normal), world_y, grain);
+		? paint_water(p, h, depth, fields, grain)
+		: paint_land(p, -depth, fields, normalize(world_normal), world_y, grain);
 
 	// Faint paper texture keeps the painted feel.
 	col *= 0.97 + 0.05 * vnoise(p * 0.6);

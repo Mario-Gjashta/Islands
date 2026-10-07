@@ -9,7 +9,7 @@ func _initialize() -> void:
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
-	main.new_sea(42)
+	main.start_session(GameState.Mode.DRIFT, 42)
 	main.build_sample_island()
 	var args_view: String = args[1] if args.size() > 1 else "near"
 	if args_view == "near":

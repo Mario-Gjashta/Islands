@@ -6,16 +6,31 @@ See [`docs/concept.md`](docs/concept.md) for the full concept.
 ![First prototype](docs/screenshots/prototype.png)
 ![Close-up](docs/screenshots/close-up.png)
 
-## Status: first prototype (the make-or-break look test)
+## Status: phase 1, the turn loop
 
-From the concept doc, the first prototype covers:
+The full design is in the concept doc (Google Doc). Built so far:
 
-1. Tap a hex to raise or lower its height, from seabed to summit.
-2. Heights blend into one smooth island, painted by a single water and land shader.
-3. Foam along the coast, plus a ghost hex under the pointer.
+- **Height levels 0–6** (deep sea, reef, sandbank, sea level, lowland, upland,
+  peak) with **the slope rule**: a raised cell can stand at most one level above
+  its highest neighbour, so islands grow outward from the seabed. Rock pieces
+  may stand two above; that's how cliffs form.
+- **Land pieces** of 1–4 hexes plus rock and spring pieces, in a **hand of 3**
+  drawn from a bag. Rotate before placing.
+- **The boat**: sail up to 3 cells across water (levels 0–2) each turn, then
+  raise a piece within 2 cells of it. Land blocks the boat, so you can wall
+  yourself in. You can't raise land under the boat.
+- **Emergent terrain** settles after every turn (`scripts/terrain_rules.gd`):
+  beach on open coasts and marsh on calm ones; forest in lowland near a spring
+  or sheltered from the wind, scrub on windward coasts, meadow otherwise; cliff
+  on uplands facing open sea and hill forest where sheltered; peaks; and
+  lagoons in shallows enclosed by land. The wind blows one way per session
+  (compass in the panel). Terrain repaints softly as it changes.
+- **Modes**: Voyage (24 pieces, ends when they run out, with a summary) and
+  Drift (endless pieces, plus a free Lower action and a sample island).
 
-Also in: a seeded sea generated from noise, rise and sink tweens with a splash
-ripple, pan and zoom, and a HUD with mode toggle and new-sea button.
+Next phases: currents, tides and drifting sand (phase 2); habitats, species,
+field guide, scoring and quests (phase 3); events, fog, collectibles and boat
+upgrades (phase 4).
 
 ## Play in the browser
 
@@ -37,14 +52,14 @@ godot --path .
 
 | Input | Action |
 | --- | --- |
-| Tap / left-click | Raise the hex one layer (or lower it in Lower mode) |
-| Right-click | Lower the hex one layer |
+| Tap / click a marked spot | Sail the boat there |
+| Tap / click near the boat | Raise the selected piece (on touch: tap to preview, tap again to place) |
+| 1 / 2 / 3 or tap a card | Select a piece |
+| R, right-click or Rotate | Rotate the piece |
+| Lower (Drift) or Tab | Lower one cell near the boat, free |
 | Drag, middle-drag, WASD / arrows | Pan |
 | Q / E | Rotate the view |
 | Wheel / pinch (trackpad or two fingers) | Zoom at the pointer |
-| Tab | Toggle Raise / Lower mode |
-| R | New sea (new seed) |
-| Sample island button | Raise a ready-made mountain island to see every layer |
 
 ## How it works
 

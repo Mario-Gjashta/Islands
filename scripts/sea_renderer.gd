@@ -2,10 +2,11 @@ class_name SeaRenderer
 extends Node3D
 ## Draws the whole sea and its islands with one shader on two planes.
 ##
-## Displayed cell heights are written into a tiny float texture (one texel per
-## hex). The shader blends neighbouring texels into a smooth height field,
-## lifts the land out of a flat sea, and paints it, so a cluster of hexes
-## reads as one soft island with a curved, foamy shore.
+## Each cell's displayed state is written into a tiny float texture, one texel
+## per hex: R = height level, G = vegetation, B = wetness, A = rock (the
+## terrain type's paint fields). The shaders blend neighbouring texels into a
+## smooth height field and smooth paint fields, so a cluster of hexes reads as
+## one soft island and terrain types melt into each other.
 
 const SEA_SHADER := preload("res://shaders/sea.gdshader")
 const TREE_SHADER := preload("res://shaders/trees.gdshader")
@@ -13,10 +14,15 @@ const BAKE_SHADER := preload("res://shaders/height_bake.gdshader")
 ## Height map texels per side; about nine per hex across the map.
 const BAKE_SIZE := 640
 const RISE_DURATION := 0.7
+## Terrain repaints more slowly than land rises, so changes read as settling.
+const REPAINT_DURATION := 1.4
 ## Passed to the shaders, which use them for sea_level and layer_height.
 const SEA_LEVEL := 2.5
 const LAYER_HEIGHT := 0.42
 const MOUNTAIN_RISE := 0.08
+## Rock towers: mirror PEAK_BASE and pillar_height in terrain.gdshaderinc.
+const TOWER_BASE := 3.0
+const TOWER_HEIGHT := 1.1
 ## Terrain mesh vertices per hex width; more = sharper peaks, more cost.
 const VERTS_PER_HEX := 9.0
 ## Tree candidates scattered per hex; the shader decides which ones grow.
@@ -30,6 +36,7 @@ var grid: HexGrid
 var _image: Image
 var _texture: ImageTexture
 var _dirty := false
+var _trees_dirty := false
 var _tweens := {}
 var _terrain: MeshInstance3D
 var _ocean: MeshInstance3D
@@ -47,33 +54,57 @@ func setup(new_grid: HexGrid, new_hex_size: float) -> void:
 	_tweens.clear()
 	grid = new_grid
 	hex_size = new_hex_size
-	_image = Image.create(grid.side, grid.side, false, Image.FORMAT_RF)
+	_image = Image.create(grid.side, grid.side, false, Image.FORMAT_RGBAF)
 	for cell in grid.cells():
-		_tween_display_height(grid.get_height(cell), cell)
+		_image.set_pixel(cell.x + grid.radius, cell.y + grid.radius, _target_state(cell))
 	_texture = ImageTexture.create_from_image(_image)
 	_dirty = false
 	_build_meshes()
 
 
-## Tweens a cell's displayed height to its new layer, with a little overshoot.
-func animate_cell(cell: Vector2i, target: int) -> void:
+## Brings every cell's display in line with the grid: heights rise or sink
+## with a little overshoot, terrain types softly repaint.
+func sync_all() -> void:
+	for cell in grid.cells():
+		var current := _display(cell)
+		var target := _target_state(cell)
+		if not current.is_equal_approx(target):
+			animate_cell(cell)
+
+
+func animate_cell(cell: Vector2i) -> void:
 	if _tweens.has(cell):
 		_tweens[cell].kill()
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_method(_tween_display_height.bind(cell), get_display_height(cell),
-		float(target), RISE_DURATION)
+	var current := _display(cell)
+	var target := _target_state(cell)
+	var tween := create_tween().set_parallel()
+	tween.tween_method(_tween_display_height.bind(cell), current.r, target.r, RISE_DURATION) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_method(_tween_display_fields.bind(cell), Vector3(current.g, current.b, current.a),
+		Vector3(target.g, target.b, target.a), REPAINT_DURATION).set_trans(Tween.TRANS_SINE)
 	tween.finished.connect(func() -> void:
 		_tweens.erase(cell)
-		_refresh_trees())
+		_trees_dirty = true)
 	_tweens[cell] = tween
-	_refresh_trees()
+	_trees_dirty = true
 
 
 func get_display_height(cell: Vector2i) -> float:
 	if not grid.contains(cell):
 		return 0.0
-	return _image.get_pixel(cell.x + grid.radius, cell.y + grid.radius).r
+	return _display(cell).r
+
+
+func _display(cell: Vector2i) -> Color:
+	return _image.get_pixel(cell.x + grid.radius, cell.y + grid.radius)
+
+
+## What a cell should look like: its height and its terrain's paint fields.
+func _target_state(cell: Vector2i) -> Color:
+	var fields: Vector3 = TerrainRules.FIELDS[grid.get_terrain(cell)]
+	if grid.springs.has(cell):
+		fields.y = 1.0
+	return Color(grid.get_height(cell), fields.x, fields.y, fields.z)
 
 
 ## World y of a cell's surface (0 at sea level), ignoring blending and peaks.
@@ -95,8 +126,8 @@ func max_ground_y(world: Vector3, radius: float) -> float:
 			var cell := centre + Vector2i(dq, dr)
 			if not grid.contains(cell):
 				continue
-			var h := get_display_height(cell)
-			h += pow(maxf(h - HexGrid.Layer.MEADOW, 0.0), 1.3) * 0.65
+			var state := _display(cell)
+			var h := state.r + pow(maxf(state.r - TOWER_BASE, 0.0), 1.3) * TOWER_HEIGHT * state.a
 			var lift := maxf(h - SEA_LEVEL, 0.0)
 			highest = maxf(highest, lift * LAYER_HEIGHT + pow(maxf(lift - 1.5, 0.0), 1.7) * MOUNTAIN_RISE)
 	return highest
@@ -104,11 +135,22 @@ func max_ground_y(world: Vector3, radius: float) -> float:
 
 ## Argument order matches Tween.tween_method, which passes the value first.
 func _tween_display_height(height: float, cell: Vector2i) -> void:
-	_image.set_pixel(cell.x + grid.radius, cell.y + grid.radius, Color(height, 0.0, 0.0))
+	var state := _display(cell)
+	state.r = height
+	_image.set_pixel(cell.x + grid.radius, cell.y + grid.radius, state)
+	_dirty = true
+
+
+func _tween_display_fields(fields: Vector3, cell: Vector2i) -> void:
+	var state := Color(_display(cell).r, fields.x, fields.y, fields.z)
+	_image.set_pixel(cell.x + grid.radius, cell.y + grid.radius, state)
 	_dirty = true
 
 
 func _process(_delta: float) -> void:
+	if _trees_dirty and _trees:
+		_refresh_trees()
+		_trees_dirty = false
 	if _dirty and _texture:
 		_texture.update(_image)
 		_bake_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
@@ -218,7 +260,7 @@ func _refresh_trees() -> void:
 
 func _could_grow_trees(cell: Vector2i) -> bool:
 	for c in [cell] + Hex.neighbors(cell):
-		if maxf(grid.get_height(c), get_display_height(c)) >= HexGrid.Layer.MEADOW:
+		if maxf(grid.get_height(c), get_display_height(c)) >= HexGrid.Level.SEA_LEVEL:
 			return true
 	return false
 

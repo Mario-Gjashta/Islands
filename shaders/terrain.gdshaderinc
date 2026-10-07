@@ -2,14 +2,15 @@
 // height field. Included by the sea/land shader and the tree shader so both
 // agree on where the ground is.
 
-// One texel per hex (axial q, r offset by grid_radius); R = displayed height.
+// One texel per hex (axial q, r offset by grid_radius): R = displayed height
+// level, G = vegetation, B = wetness, A = rock (the cell's terrain fields).
 uniform sampler2D cells : filter_nearest, repeat_disable;
 // World units from a hex centre to a corner.
 uniform float hex_size = 1.0;
 uniform int grid_radius = 18;
 
-// Height layers: 0 seabed, 1 reef, 2 shallows, 3 beach, 4 meadow, 5 hills,
-// 6 highland, 7 mountain, 8 summit.
+// Height levels: 0 deep sea, 1 reef, 2 sandbank, 3 sea level, 4 lowland,
+// 5 upland, 6 peak. The waterline sits between sandbank and sea level.
 uniform float sea_level = 2.5;
 // World units each layer above the sea rises.
 uniform float layer_height = 0.42;
@@ -17,8 +18,8 @@ uniform float layer_height = 0.42;
 uniform float blend_falloff = 1.3;
 // How far (in hexes) coastlines wander from the hex grid.
 uniform float coast_warp = 0.3;
-// How tall (in layers) the rock towers on high hexes stand.
-uniform float pillar_height = 0.65;
+// How tall (in levels) rock towers stand; mirrored in sea_renderer.gd.
+uniform float pillar_height = 1.1;
 // 0 = smooth slopes on high ground, 1 = sharp terraced cliffs between layers.
 uniform float cliff_strength = 0.85;
 // Lumpy, uneven tops on high ground, in layers.
@@ -28,8 +29,8 @@ const float SQRT3 = 1.7320508;
 // The painting works in "paint units": one hex is 48 of them, whatever its
 // world size, so brush and noise scales stay put if the world is rescaled.
 const float PAINT_HEX = 48.0;
-// Layers above this start to form cliffs and towers.
-const float PEAK_BASE = 4.0;
+// Rock above this level rises into cliffs and towers.
+const float PEAK_BASE = 3.0;
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -89,26 +90,30 @@ vec2 axial_round(vec2 a) {
 	return r.xy;
 }
 
-float cell_height(vec2 a) {
+// A cell's (height, vegetation, wetness, rock); outside the map is deep sea.
+vec4 cell_state(vec2 a) {
 	ivec2 i = ivec2(a) + ivec2(grid_radius);
 	int n = 2 * grid_radius + 1;
 	if (i.x < 0 || i.y < 0 || i.x >= n || i.y >= n) {
-		return 0.0;
+		return vec4(0.0);
 	}
-	return texelFetch(cells, i, 0).r;
+	return texelFetch(cells, i, 0);
 }
 
-// Height in layers at a point (paint units). A gaussian blend of the two rings
-// of hexes around it gives soft contours. High ground then breaks into sheer
-// terraced cliffs between layers, and every hex above the meadows pushes up a
-// steep-walled rock tower with a rounded top, taller the higher the hex.
-float terrain(vec2 p) {
+// Height in levels at a point (paint units), plus the blended terrain fields
+// (vegetation, wetness, rock). A gaussian blend of the two rings of hexes
+// around the point gives soft contours. Rock breaks into sheer terraced
+// cliffs between levels, and every rock hex above sea level pushes up a
+// steep-walled tower with a rounded top, taller the higher it stands. Hills
+// without rock stay soft and rounded.
+float terrain_fields(vec2 p, out vec3 fields) {
 	vec2 warp = vec2(fbm(p * 0.012), fbm(p * 0.012 + vec2(5.2, 1.3))) - 0.5;
 	vec2 q = p + warp * PAINT_HEX * coast_warp * 2.0;
 	vec2 centre = axial_round(paint_to_axial(q));
 	// Rough tower outlines, shared by every hex.
 	float outline_noise = vnoise(q * 0.05) - 0.5;
 	float sum = 0.0;
+	vec3 field_sum = vec3(0.0);
 	float weight_sum = 0.0;
 	float pillar = 0.0;
 	for (int dq = -2; dq <= 2; dq++) {
@@ -117,15 +122,18 @@ float terrain(vec2 p) {
 				continue;
 			}
 			vec2 a = centre + vec2(float(dq), float(dr));
-			float h = cell_height(a);
+			vec4 state = cell_state(a);
+			float h = state.r;
+			float rock = state.a;
 			vec2 d = (q - axial_to_paint(a)) / PAINT_HEX;
-			// High hexes keep their height out to their edges, so rock rises
-			// in steep walls instead of soft cones.
-			float falloff = blend_falloff * (1.0 + 2.5 * smoothstep(PEAK_BASE, PEAK_BASE + 3.0, h));
+			// High rock keeps its height out to its edges, so it rises in steep
+			// walls instead of soft cones.
+			float falloff = blend_falloff * (1.0 + 2.5 * rock * smoothstep(PEAK_BASE, PEAK_BASE + 2.0, h));
 			float w = exp(-dot(d, d) * falloff);
 			sum += w * h;
+			field_sum += w * state.gba;
 			weight_sum += w;
-			float above = h - PEAK_BASE;
+			float above = (h - PEAK_BASE) * rock;
 			if (above > 0.0) {
 				// Towers sit off-centre with varied girth so ranges aren't gridded.
 				vec2 jitter = (vec2(hash(a + 0.31), hash(a + 0.77)) - 0.5) * 0.5;
@@ -138,18 +146,25 @@ float terrain(vec2 p) {
 		}
 	}
 	float h = sum / weight_sum;
-	// Sheer steps between layers on high ground.
-	float high = smoothstep(PEAK_BASE - 0.5, PEAK_BASE + 0.5, h);
+	fields = field_sum / weight_sum;
+	// Sheer steps between levels on rocky high ground.
+	float high = smoothstep(PEAK_BASE - 0.5, PEAK_BASE + 0.5, h) * smoothstep(0.2, 0.6, fields.z);
 	float terraced = floor(h) + smoothstep(0.3, 0.7, fract(h));
 	h = mix(h, terraced, high * cliff_strength);
 	float lumps = (fbm(q * 0.04) - 0.5) * crag_strength * high;
 	return h + pillar * pillar_height + lumps;
 }
 
+float terrain(vec2 p) {
+	vec3 fields;
+	return terrain_fields(p, fields);
+}
+
 // The terrain height, baked once per change into a texture (see
 // height_bake.gdshader) so meshes and trees can look it up cheaply instead of
-// re-running terrain() for every vertex, every frame. Stored as 16 bits split
-// over R (high byte) and G (low byte), scaled by HEIGHT_RANGE.
+// re-running terrain() for every vertex, every frame. Height is stored as 16
+// bits split over R (high byte) and G (low byte), scaled by HEIGHT_RANGE;
+// B holds the blended vegetation, for trees.
 uniform sampler2D height_map : filter_nearest, repeat_disable;
 // World size of the square the height map covers, centred on the origin.
 uniform float bake_extent = 80.0;
@@ -160,7 +175,13 @@ float baked_texel(ivec2 i, ivec2 size) {
 	return (c.r + c.g / 255.0) * HEIGHT_RANGE;
 }
 
-// Bilinear lookup of the baked height (in layers) at a world xz position.
+float baked_vegetation(vec2 xz) {
+	ivec2 size = textureSize(height_map, 0);
+	ivec2 i = ivec2((xz / bake_extent + 0.5) * vec2(size));
+	return texelFetch(height_map, clamp(i, ivec2(0), size - 1), 0).b;
+}
+
+// Bilinear lookup of the baked height (in levels) at a world xz position.
 float baked_height(vec2 xz) {
 	ivec2 size = textureSize(height_map, 0);
 	vec2 t = (xz / bake_extent + 0.5) * vec2(size) - 0.5;
@@ -202,11 +223,8 @@ vec3 baked_normal(vec2 xz, float e) {
 	return normalize(vec3(-(yx - y) / e, 1.0, -(yz - y) / e));
 }
 
-// How likely a spot is to hold a tree, from its height above the sea and how
-// flat it is (1 = level): scattered on meadows, thick jungle on the hills and
-// on every ledge and tower top flat enough to hold soil.
-float tree_density(float lift, float flatness) {
-	float meadow = smoothstep(1.1, 1.35, lift) * 0.3;
-	float forest = smoothstep(1.8, 2.2, lift) * 0.55;
-	return (meadow + forest) * smoothstep(0.7, 0.88, flatness);
+// How likely a spot is to hold a tree, from the terrain's vegetation
+// (forest 1, meadow ~0.4, scrub ~0.2) and how flat it is (1 = level).
+float tree_density(float vegetation, float flatness) {
+	return smoothstep(0.12, 1.0, vegetation) * 0.85 * smoothstep(0.7, 0.88, flatness);
 }
